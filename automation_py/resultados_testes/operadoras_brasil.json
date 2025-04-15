@@ -1,0 +1,84 @@
+{
+  "go": {
+    "servicos": [
+      "go"
+    ],
+    "disponibilidade_geral": {
+      "go": 0
+    },
+    "operadoras": {
+      "claro": {
+        "disponivel": false,
+        "nota": "Informação simulada pois a API não suporta verificação por operadora"
+      },
+      "vivo": {
+        "disponivel": false,
+        "nota": "Informação simulada pois a API não suporta verificação por operadora"
+      },
+      "tim": {
+        "disponivel": false,
+        "nota": "Informação simulada pois a API não suporta verificação por operadora"
+      },
+      "oi": {
+        "disponivel": false,
+        "nota": "Informação simulada pois a API não suporta verificação por operadora"
+      }
+    }
+  },
+  "go+tk": {
+    "servicos": [
+      "go",
+      "tk"
+    ],
+    "disponibilidade_geral": {
+      "go": 0,
+      "tk": 0
+    },
+    "operadoras": {
+      "claro": {
+        "disponivel": false,
+        "nota": "Informação simulada pois a API não suporta verificação por operadora"
+      },
+      "vivo": {
+        "disponivel": false,
+        "nota": "Informação simulada pois a API não suporta verificação por operadora"
+      },
+      "tim": {
+        "disponivel": false,
+        "nota": "Informação simulada pois a API não suporta verificação por operadora"
+      },
+      "oi": {
+        "disponivel": false,
+        "nota": "Informação simulada pois a API não suporta verificação por operadora"
+      }
+    }
+  },
+  "go+ig": {
+    "servicos": [
+      "go",
+      "ig"
+    ],
+    "disponibilidade_geral": {
+      "go": 0,
+      "ig": 3670
+    },
+    "operadoras": {
+      "claro": {
+        "disponivel": false,
+        "nota": "Informação simulada pois a API não suporta verificação por operadora"
+      },
+      "vivo": {
+        "disponivel": false,
+        "nota": "Informação simulada pois a API não suporta verificação por operadora"
+      },
+      "tim": {
+        "disponivel": false,
+        "nota": "Informação simulada pois a API não suporta verificação por operadora"
+      },
+      "oi": {
+        "disponivel": false,
+        "nota": "Informação simulada pois a API não suporta verificação por operadora"
+      }
+    }
+  }
+}

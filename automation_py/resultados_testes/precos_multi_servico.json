@@ -1,0 +1,110 @@
+{
+  "saldo": 9.395,
+  "go": {
+    "servicos": [
+      "go"
+    ],
+    "precos_individuais": {
+      "go": {
+        "country_code": "73",
+        "country_name": "Brasil",
+        "price": 0.21,
+        "available": 187
+      }
+    },
+    "soma_precos": 0.21
+  },
+  "go+tk": {
+    "servicos": [
+      "go",
+      "tk"
+    ],
+    "precos_individuais": {
+      "go": {
+        "country_code": "73",
+        "country_name": "Brasil",
+        "price": 0.21,
+        "available": 187
+      }
+    },
+    "soma_precos": 0.21
+  },
+  "go+ig": {
+    "servicos": [
+      "go",
+      "ig"
+    ],
+    "precos_individuais": {
+      "go": {
+        "country_code": "73",
+        "country_name": "Brasil",
+        "price": 0.21,
+        "available": 187
+      },
+      "ig": {
+        "country_code": "73",
+        "country_name": "Brasil",
+        "price": 0.06,
+        "available": 3741
+      }
+    },
+    "soma_precos": 0.27
+  },
+  "go+tk+ig": {
+    "servicos": [
+      "go",
+      "tk",
+      "ig"
+    ],
+    "precos_individuais": {
+      "go": {
+        "country_code": "73",
+        "country_name": "Brasil",
+        "price": 0.21,
+        "available": 187
+      },
+      "ig": {
+        "country_code": "73",
+        "country_name": "Brasil",
+        "price": 0.06,
+        "available": 3741
+      }
+    },
+    "soma_precos": 0.27
+  },
+  "go+vk+ig+fb": {
+    "servicos": [
+      "go",
+      "vk",
+      "ig",
+      "fb"
+    ],
+    "precos_individuais": {
+      "go": {
+        "country_code": "73",
+        "country_name": "Brasil",
+        "price": 0.21,
+        "available": 187
+      },
+      "vk": {
+        "country_code": "73",
+        "country_name": "Brasil",
+        "price": 0.05,
+        "available": 13630
+      },
+      "ig": {
+        "country_code": "73",
+        "country_name": "Brasil",
+        "price": 0.06,
+        "available": 3741
+      },
+      "fb": {
+        "country_code": "73",
+        "country_name": "Brasil",
+        "price": 0.09,
+        "available": 430962
+      }
+    },
+    "soma_precos": 0.41000000000000003
+  }
+}

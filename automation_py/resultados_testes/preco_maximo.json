@@ -1,0 +1,57 @@
+{
+  "precos_atuais": [
+    {
+      "servico": "go",
+      "preco": 0.21,
+      "disponivel": 187
+    },
+    {
+      "servico": "ig",
+      "preco": 0.06,
+      "disponivel": 3741
+    }
+  ],
+  "preco_total_atual": 0.27,
+  "analise_faixas": {
+    "5": {
+      "preco_maximo": 5,
+      "seria_possivel": true,
+      "nota": "Provavelmente disponível baseado nos preços individuais",
+      "recomendacao": "Para maior chance de sucesso, defina um preço máximo pelo menos 20% acima da soma dos preços individuais."
+    },
+    "10": {
+      "preco_maximo": 10,
+      "seria_possivel": true,
+      "nota": "Provavelmente disponível baseado nos preços individuais",
+      "recomendacao": "Para maior chance de sucesso, defina um preço máximo pelo menos 20% acima da soma dos preços individuais."
+    },
+    "15": {
+      "preco_maximo": 15,
+      "seria_possivel": true,
+      "nota": "Provavelmente disponível baseado nos preços individuais",
+      "recomendacao": "Para maior chance de sucesso, defina um preço máximo pelo menos 20% acima da soma dos preços individuais."
+    },
+    "20": {
+      "preco_maximo": 20,
+      "seria_possivel": true,
+      "nota": "Provavelmente disponível baseado nos preços individuais",
+      "recomendacao": "Para maior chance de sucesso, defina um preço máximo pelo menos 20% acima da soma dos preços individuais."
+    },
+    "25": {
+      "preco_maximo": 25,
+      "seria_possivel": true,
+      "nota": "Provavelmente disponível baseado nos preços individuais",
+      "recomendacao": "Para maior chance de sucesso, defina um preço máximo pelo menos 20% acima da soma dos preços individuais."
+    },
+    "30": {
+      "preco_maximo": 30,
+      "seria_possivel": true,
+      "nota": "Provavelmente disponível baseado nos preços individuais",
+      "recomendacao": "Para maior chance de sucesso, defina um preço máximo pelo menos 20% acima da soma dos preços individuais."
+    }
+  },
+  "recomendacao_geral": {
+    "preco_recomendado": 0.32,
+    "explicacao": "Preço 20% acima da soma dos preços individuais para garantir disponibilidade"
+  }
+}

@@ -1,0 +1,6 @@
+Faker==37.1.0
+Flask==3.1.0
+pandas==2.2.3
+Requests==2.32.3
+selenium==4.31.0
+streamlit==1.41.1
