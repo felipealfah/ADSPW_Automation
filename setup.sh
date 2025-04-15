@@ -37,14 +37,33 @@ if [ "$OS" = "Darwin" ]; then
     # MacOS
     ADSPOWER_PATHS=(
         "$HOME/Library/Application Support/AdsPower"
+        "$HOME/Library/Application Support/AdsPower Global"
+        "$HOME/Library/Application Support/adspower_global"
+        "$HOME/Library/Application Support/adspower"
         "/Applications/AdsPower.app"
+        "/Applications/AdsPower Global.app"
+        "/Applications/adspower_global.app"
+        "/Applications/adspower.app"
     )
 elif [ "$OS" = "Linux" ]; then
     # Linux
     ADSPOWER_PATHS=(
         "$HOME/.config/AdsPower"
+        "$HOME/.config/AdsPower Global"
+        "$HOME/.config/adspower_global"
+        "$HOME/.config/adspower"
         "$HOME/.AdsPower"
+        "$HOME/.AdsPower Global"
+        "$HOME/.adspower_global"
+        "$HOME/.adspower"
         "/opt/AdsPower"
+        "/opt/AdsPower Global"
+        "/opt/adspower_global"
+        "/opt/adspower"
+        "/usr/share/adspower"
+        "/usr/share/adspower_global"
+        "/usr/local/share/adspower"
+        "/usr/local/share/adspower_global"
     )
 fi
 
@@ -70,7 +89,15 @@ else
     CONFIG_FILES=(
         "$ADSPOWER_PATH/config.json"
         "$HOME/Library/Application Support/AdsPower/config.json"
+        "$HOME/Library/Application Support/AdsPower Global/config.json"
+        "$HOME/Library/Application Support/adspower_global/config.json"
+        "$HOME/Library/Application Support/adspower/config.json"
         "$HOME/.config/AdsPower/config.json"
+        "$HOME/.config/AdsPower Global/config.json"
+        "$HOME/.config/adspower_global/config.json"
+        "$HOME/.config/adspower/config.json"
+        "$HOME/.adspower/config.json"
+        "$HOME/.adspower_global/config.json"
     )
     
     CONFIG_FOUND=false
@@ -120,6 +147,60 @@ else
         echo "⚠️ Arquivo de configuração não encontrado."
         echo "⚠️ Você precisará configurar o AdsPower manualmente."
     fi
+    
+    # Procurar e atualizar o arquivo local_api
+    echo "🔍 Procurando pelo arquivo local_api..."
+    
+    # Possíveis caminhos para o arquivo local_api
+    LOCAL_API_PATHS=(
+        # Para AdsPower normal
+        "$(find "$HOME" -path "*/cwd/source/local_api" -type f 2>/dev/null)"
+        "$(find "$ADSPOWER_PATH" -path "*/cwd/source/local_api" -type f 2>/dev/null)"
+        # Para AdsPower Global
+        "$(find "$HOME" -path "*/cwd_global/source/local_api" -type f 2>/dev/null)"
+        "$(find "$ADSPOWER_PATH" -path "*/cwd_global/source/local_api" -type f 2>/dev/null)"
+    )
+    
+    LOCAL_API_FOUND=false
+    
+    for path in "${LOCAL_API_PATHS[@]}"; do
+        if [ -n "$path" ] && [ -f "$path" ]; then
+            echo "✅ Arquivo local_api encontrado: $path"
+            LOCAL_API_FOUND=true
+            
+            echo "📋 Criando backup do arquivo local_api..."
+            cp "$path" "${path}.backup_$(date +%Y%m%d%H%M%S)"
+            
+            echo "🔧 Atualizando endereço da API para 0.0.0.0:50325..."
+            echo "http://0.0.0.0:50325/" > "$path"
+            
+            echo "✅ Arquivo local_api atualizado com sucesso!"
+            break
+        fi
+    done
+    
+    if [ "$LOCAL_API_FOUND" = false ]; then
+        echo "🔍 Tentando busca mais abrangente pelo arquivo local_api..."
+        
+        # Busca mais ampla pelo arquivo local_api
+        LOCAL_API_FILE=$(find "$HOME" -name "local_api" -type f 2>/dev/null | grep -v "backup" | head -n 1)
+        
+        if [ -n "$LOCAL_API_FILE" ] && [ -f "$LOCAL_API_FILE" ]; then
+            echo "✅ Arquivo local_api encontrado: $LOCAL_API_FILE"
+            
+            echo "📋 Criando backup do arquivo local_api..."
+            cp "$LOCAL_API_FILE" "${LOCAL_API_FILE}.backup_$(date +%Y%m%d%H%M%S)"
+            
+            echo "🔧 Atualizando endereço da API para 0.0.0.0:50325..."
+            echo "http://0.0.0.0:50325/" > "$LOCAL_API_FILE"
+            
+            echo "✅ Arquivo local_api atualizado com sucesso!"
+        else
+            echo "⚠️ Arquivo local_api não encontrado automaticamente."
+            echo "⚠️ Você precisará localizar e modificar manualmente o arquivo 'local_api'."
+            echo "    Conteúdo para colocar no arquivo: http://0.0.0.0:50325/"
+        fi
+    fi
 fi
 
 # Instruções para configuração manual
@@ -132,6 +213,12 @@ echo "4. Marque a opção 'Enable API'"
 echo "5. Configure o 'Server IP' para '0.0.0.0'"
 echo "6. Mantenha a porta como '50325'"
 echo "7. Clique em 'Save' e reinicie o AdsPower"
+echo ""
+echo "📝 INSTRUÇÕES PARA MODIFICAR MANUALMENTE O ARQUIVO local_api:"
+echo "1. Localize o arquivo 'local_api' na instalação do AdsPower"
+echo "   (normalmente em uma pasta como cwd/source/ ou cwd_global/source/)"
+echo "2. Edite o arquivo e substitua todo o conteúdo por: http://0.0.0.0:50325/"
+echo "3. Salve o arquivo e reinicie o AdsPower"
 echo ""
 
 # Testar conexão com AdsPower
@@ -181,6 +268,8 @@ if command -v curl &> /dev/null; then
     response=$(curl -s -o /dev/null -w "%{http_code}" http://local.adspower.net:50325/status -m 5 2>/dev/null)
     if [ "$response" == "200" ]; then
         echo " Conexao com local.adspower.net bem-sucedida!"
+        # Atualizar a configuração para usar este endereço que funcionou
+        sed -i.bak 's|^ADSPOWER_API_URL=.*|ADSPOWER_API_URL=http://local.adspower.net:50325|' .env
     else
         echo " Falha na conexão ou resposta inesperada: $response"
     fi
@@ -190,6 +279,10 @@ if command -v curl &> /dev/null; then
     response=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:50325/status -m 5 2>/dev/null)
     if [ "$response" == "200" ]; then
         echo " Conexao com localhost bem-sucedida!"
+        # Se o local.adspower.net não funcionou e este funcionou, atualizar
+        if ! grep -q "^ADSPOWER_API_URL=http://local.adspower.net:50325" .env; then
+            sed -i.bak 's|^ADSPOWER_API_URL=.*|ADSPOWER_API_URL=http://localhost:50325|' .env
+        fi
     else
         echo " Falha na conexão ou resposta inesperada: $response"
     fi
@@ -199,8 +292,25 @@ if command -v curl &> /dev/null; then
     response=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:50325/status -m 5 2>/dev/null)
     if [ "$response" == "200" ]; then
         echo " Conexao com 127.0.0.1 bem-sucedida!"
+        # Se nenhum dos anteriores funcionou e este funcionou, atualizar
+        if ! grep -q "^ADSPOWER_API_URL=http://local.adspower.net:50325" .env && ! grep -q "^ADSPOWER_API_URL=http://localhost:50325" .env; then
+            sed -i.bak 's|^ADSPOWER_API_URL=.*|ADSPOWER_API_URL=http://127.0.0.1:50325|' .env
+        fi
     else
         echo " Falha na conexão ou resposta inesperada: $response"
+    fi
+    
+    # Verificar se algum endereço funcionou
+    if ! curl -s -o /dev/null -w "%{http_code}" http://local.adspower.net:50325/status -m 2 2>/dev/null && \
+       ! curl -s -o /dev/null -w "%{http_code}" http://localhost:50325/status -m 2 2>/dev/null && \
+       ! curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:50325/status -m 2 2>/dev/null; then
+        echo ""
+        echo "⚠️ ATENÇÃO: Nenhuma conexão com o AdsPower foi bem-sucedida!"
+        echo "⚠️ Verifique se o AdsPower está em execução e configurado corretamente."
+    else
+        echo ""
+        echo "✅ Pelo menos uma conexão com o AdsPower foi bem-sucedida!"
+        echo "✅ O arquivo .env foi atualizado para usar o endereço que funcionou."
     fi
 else
     echo "X curl não encontrado. Não foi possível testar a conexão com o AdsPower."
@@ -256,4 +366,4 @@ echo "  4. Desativar temporariamente firewalls e software antivirus"
 echo ""
 
 # Execute este comando na raiz do projeto, não dentro de automation_py/
-sudo docker buildx create --use && docker buildx build --platform linux/amd64,linux/arm64 -t felipealfah/pwads_automation:1.0 -t felipealfah/pwads_automation:latest . --push
+# sudo docker buildx create --use && docker buildx build --platform linux/amd64,linux/arm64 -t felipealfah/pwads_automation:1.0 -t felipealfah/pwads_automation:latest . --push
