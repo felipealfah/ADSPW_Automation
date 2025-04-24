@@ -1,5 +1,3 @@
-
-from flask import Flask, request, jsonify
 import logging
 import json
 import os
@@ -22,6 +20,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Importar módulos locais após configurar PYTHONPATH
+from flask import Flask, request, jsonify
 from powerads_api.profiles import ProfileManager, get_profiles
 from credentials.credentials_manager import get_credential
 
@@ -39,6 +38,8 @@ sms_codes = {}
 def health_check():
     """Endpoint para verificar se o serviço está funcionando."""
     return jsonify({"status": "ok"})
+
+# --- Rotas para receber notificações de SMS da API SMS-Activate ---
 
 
 @app.route('/sms-webhook', methods=['POST'])
@@ -192,7 +193,7 @@ def get_sms_status(activation_id):
         return jsonify({"success": False, "error": "Activation ID not found"}), 404
 
 
-# endpoint para listar perfis do AdsPower
+# --- Rotas para perfis do AdsPower ---
 @app.route('/profiles', methods=['GET'])
 def list_profiles():
     """Endpoint para listar todos os perfis do AdsPower."""
@@ -306,6 +307,8 @@ def get_profile_details(user_id):
             "error": str(e)
         }), 500
 
+# --- Rotas para criar contas Gmail ---
+
 
 @app.route('/create-gmail/<user_id>', methods=['POST'])
 def create_gmail_account(user_id):
@@ -339,15 +342,21 @@ def create_gmail_account(user_id):
 
         # Configurar dependências
         base_url = get_credential(
-            "PA_BASE_URL") or "http://local.adspower.net:50325"
+            "PA_BASE_URL")
         api_key = get_credential("PA_API_KEY")
         sms_api_key = get_credential("SMS_ACTIVATE_API_KEY")
 
         # Inicializar o gerenciador do AdsPower
         adspower_manager = AdsPowerManager(base_url, api_key)
 
+        # Esperar um tempo para garantir que a conexão seja estabelecida
+        time.sleep(2)
+
         # Verificar se o perfil existe
-        profiles = adspower_manager.get_profiles()
+        profiles = get_profiles(base_url, {
+            "Authorization": f"Bearer {api_key}" if api_key else "",
+            "Content-Type": "application/json"
+        })
         profile_exists = any(profile.get("user_id") ==
                              user_id for profile in profiles)
 

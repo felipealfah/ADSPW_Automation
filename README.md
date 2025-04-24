@@ -5,11 +5,12 @@ Este sistema integra automações RPA (Robotic Process Automation) para o AdsPow
 ## Requisitos
 
 - AdsPower instalado no sistema host
+- Python 3.8+
 - Conexão com a internet
 
 ## Requisitos Mínimos de Hardware
 
-Para executar o sistema completo (AdsPower + Docker com RPA), recomendamos:
+Para executar o sistema completo, recomendamos:
 
 ### Requisitos Mínimos
 - **CPU:** 4 cores (Intel i5/AMD Ryzen 5 ou superior)
@@ -43,3 +44,8 @@ Para executar o sistema completo (AdsPower + Docker com RPA), recomendamos:
 O AdsPower executa instâncias Chrome separadas para cada perfil, e cada instância consome aproximadamente 300-500MB de RAM em estado ocioso, podendo chegar a 1GB+ durante automações intensivas. Ajuste os requisitos de hardware de acordo com sua estratégia de execução.
 
 ## Instalação Rápida
+
+1. Certifique-se de que o AdsPower está instalado e configurado
+2. Instale o Python 3.8 ou superior
+3. Clone este repositório
+4. Execute o script de setup para configurar o ambiente

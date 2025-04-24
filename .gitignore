@@ -9,6 +9,7 @@ credentials/credentials.json
 .json
 dockerfile
 docker-compose.yml
+venv/
 
 
 *.log

@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class BrowserConfig:
     """Configurações do navegador."""
     headless: bool = False  # Por padrão, não usar modo headless
-    max_wait_time: int = 30  # Tempo máximo de espera em segundos
+    max_wait_time: int = 60  # Tempo máximo de espera em segundos
     user_agent: Optional[str] = None  # User agent personalizado (opcional)
     proxy: Optional[Dict] = None  # Configurações de proxy (opcional)
 

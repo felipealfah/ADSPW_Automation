@@ -1,5 +1,3 @@
-
-
 import sys
 import time
 import json
@@ -277,7 +275,7 @@ if st.session_state.current_page == "🔑 Gerenciar Credenciais":
             "Endereço da API do AdsPower",
             value=credentials.get(
                 "PA_BASE_URL", "http://local.adspower.net:50325"),
-            help="Por exemplo: http://local.adspower.net:50325 ou http://host.docker.internal:50325"
+            help="Por exemplo: http://local.adspower.net:50325 ou http://localhost:50325"
         )
 
         pa_api_key = st.text_input(
@@ -337,7 +335,7 @@ if st.session_state.current_page == "🔑 Gerenciar Credenciais":
     1. Verifique se o AdsPower está em execução em sua máquina
     2. Certifique-se de que a API está habilitada nas configurações do AdsPower
     3. O endereço padrão é `http://local.adspower.net:50325`
-    4. Se estiver usando Docker, você pode precisar usar `http://host.docker.internal:50325`
+    4. Você também pode usar `http://localhost:50325` se o padrão não funcionar
     5. Para ambiente de produção, use o endereço IP exato da máquina onde o AdsPower está instalado
     """)
 
@@ -512,7 +510,7 @@ elif st.session_state.current_page == "📩 Automação Gmail":
             browser_wait_time = st.number_input("⏱️ Tempo máximo de espera (segundos)",
                                                 min_value=10,
                                                 max_value=120,
-                                                value=30)
+                                                value=60)
 
         with browser_col2:
             st.write("")
