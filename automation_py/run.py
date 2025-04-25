@@ -35,7 +35,7 @@ def stream_output(process, prefix):
 
 def shutdown_handler(signum=None, frame=None):
     """Manipulador para encerrar todos os processos."""
-    print("\n🛑 Encerrando serviços...")
+    print("\n[PARADA] Encerrando serviços...")
     
     for name, process in processes:
         if process.poll() is None:  # Se o processo ainda estiver em execução
@@ -49,7 +49,7 @@ def shutdown_handler(signum=None, frame=None):
                 except subprocess.TimeoutExpired:
                     process.kill()  # Força o encerramento se demorar demais
     
-    print("✅ Todos os serviços foram encerrados.")
+    print("[OK] Todos os serviços foram encerrados.")
     sys.exit(0)
 
 def main():
@@ -58,7 +58,7 @@ def main():
     
     clear_screen()
     print("=" * 60)
-    print("🚀 INICIANDO SERVIÇOS SMS GATEWAY & UI 🚀")
+    print("[INICIO] INICIANDO SERVIÇOS SMS GATEWAY & UI [INICIO]")
     print("=" * 60)
     
     # Configurar tratamento de sinal para encerramento limpo
@@ -70,7 +70,7 @@ def main():
         pass  # Ignorar erros em sistemas que não suportam sinais
     
     # Iniciar o servidor webhook
-    print("📲 Iniciando servidor webhook...")
+    print(" Iniciando servidor webhook...")
     webhook_cmd = [sys.executable, "webhooks/webhook.py"]
     
     try:
@@ -92,11 +92,11 @@ def main():
         webhook_thread.start()
         
         # Aguardar um pouco para o webhook iniciar
-        print("⏳ Aguardando inicialização do webhook...")
+        print(" Aguardando inicialização do webhook...")
         time.sleep(3)
         
         # Iniciar o Streamlit
-        print("🖥️ Iniciando aplicação Streamlit...")
+        print(" Iniciando aplicação Streamlit...")
         streamlit_app = os.path.join("ui", "app.py")
         streamlit_cmd = ["streamlit", "run", streamlit_app]
         
@@ -117,9 +117,9 @@ def main():
         )
         streamlit_thread.start()
         
-        print("\n✅ Todos os serviços foram iniciados!")
+        print("\n[OK] Todos os serviços foram iniciados!")
         print("-" * 60)
-        print("📋 Instruções:")
+        print("[CLIPBOARD] Instruções:")
         print("  - Os logs dos serviços são mostrados acima com prefixos")
         print("  - Pressione Ctrl+C para encerrar todos os serviços")
         print("-" * 60)
@@ -132,7 +132,7 @@ def main():
             # Se chegou aqui, um dos processos terminou
             for name, process in processes:
                 if process.poll() is not None:
-                    print(f"⚠️ O serviço {name} foi encerrado inesperadamente.")
+                    print(f"[AVISO] O serviço {name} foi encerrado inesperadamente.")
             
             # Encerrar os outros processos também
             shutdown_handler()
@@ -143,7 +143,7 @@ def main():
 
     except Exception as e:
         logger.error(f"Erro ao iniciar os serviços: {str(e)}")
-        print(f"❌ Erro ao iniciar os serviços: {str(e)}")
+        print(f"[ERRO] Erro ao iniciar os serviços: {str(e)}")
         shutdown_handler()
 
 if __name__ == "__main__":

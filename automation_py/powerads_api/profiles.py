@@ -50,14 +50,14 @@ def create_profile_with_fingerprint(base_url, headers, name, fingerprint_choice,
     if fingerprint_choice not in FINGERPRINTS:
         raise ValueError(f"Fingerprint inválido: {fingerprint_choice}")
 
-    # 🚀 Se proxy_config for None, usar um proxy fixo de teste
+    # [INICIO] Se proxy_config for None, usar um proxy fixo de teste
     if not proxy_config:
         proxy_config = {
             "proxy_type": "http",
-            "proxy_host": "123.0.0.1",  # 🛑 Altere para um IP de proxy real
+            "proxy_host": "123.0.0.1",  # [PARADA] Altere para um IP de proxy real
             "proxy_port": "8080",
-            "proxy_user": "proxyuser",  # 🛑 Se necessário, altere para um usuário real
-            "proxy_password": "proxypass",  # 🛑 Se necessário, altere para uma senha real
+            "proxy_user": "proxyuser",  # [PARADA] Se necessário, altere para um usuário real
+            "proxy_password": "proxypass",  # [PARADA] Se necessário, altere para uma senha real
             "proxy_soft": "luminati"
         }
 
@@ -88,19 +88,19 @@ def create_profile_with_fingerprint(base_url, headers, name, fingerprint_choice,
         "name": name,
         "group_id": group_id,
         "fingerprint_config": FINGERPRINTS[fingerprint_choice],
-        **proxy_data  # 🚀 Sempre incluir um proxy válido!
+        **proxy_data  # [INICIO] Sempre incluir um proxy válido!
     }
 
-    # 🔍 Debug: Exibir JSON enviado para a API
-    print("\n🔍 Dados enviados para a API (JSON):")
+    # [BUSCA] Debug: Exibir JSON enviado para a API
+    print("\n[BUSCA] Dados enviados para a API (JSON):")
     print(json.dumps(profile_data, indent=4))
 
     # Enviar a requisição para criar o perfil
     url = f"{base_url}/api/v1/user/create"
     response = make_request("POST", url, headers, profile_data)
 
-    # 🔍 Debug: Exibir resposta da API
-    print("\n🔍 Resposta da API:")
+    # [BUSCA] Debug: Exibir resposta da API
+    print("\n[BUSCA] Resposta da API:")
     print(response)
 
     return response
@@ -193,7 +193,7 @@ def get_profiles(base_url, headers, only_in_groups=True):
                                      f"Group ID: {profile.get('group_id')}, Group Name: {profile.get('group_name')}")
 
     except requests.exceptions.RequestException as e:
-        logging.error(f"❌ Erro ao buscar perfis: {e}")
+        logging.error(f"[ERRO] Erro ao buscar perfis: {e}")
 
     return all_profiles
 

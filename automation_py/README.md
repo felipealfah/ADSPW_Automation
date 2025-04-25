@@ -54,21 +54,21 @@ streamlit run ui/app.py
 
 ```
 .
-├── automations/
-│   └── gmail_creator/
-│       ├── core.py              # Classe principal da automação
-│       ├── account_setup.py     # Configuração inicial da conta
-│       ├── phone_verify.py      # Verificação de telefone
-│       ├── terms_handler.py     # Aceitação dos termos
-│       ├── account_verify.py    # Verificação final da conta
-│       ├── config.py           # Configurações e timeouts
-│       ├── exceptions.py       # Exceções personalizadas
-│       └── locators.py         # Localizadores de elementos
-├── powerads_api/
-│   ├── browser_manager.py      # Gerenciamento do browser
-│   ├── ads_power_manager.py    # Interface com AdsPower
-│   └── profiles.py            # Gerenciamento de perfis
-└── requirements.txt
+ automations/
+    gmail_creator/
+        core.py              # Classe principal da automação
+        account_setup.py     # Configuração inicial da conta
+        phone_verify.py      # Verificação de telefone
+        terms_handler.py     # Aceitação dos termos
+        account_verify.py    # Verificação final da conta
+        config.py           # Configurações e timeouts
+        exceptions.py       # Exceções personalizadas
+        locators.py         # Localizadores de elementos
+ powerads_api/
+    browser_manager.py      # Gerenciamento do browser
+    ads_power_manager.py    # Interface com AdsPower
+    profiles.py            # Gerenciamento de perfis
+ requirements.txt
 ```
 
 

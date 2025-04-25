@@ -72,7 +72,7 @@ class AccountSetup:
     def start_setup(self) -> bool:
         """Inicia o processo de configuração da conta."""
         try:
-            logger.info("🚀 Iniciando configuração da conta Gmail...")
+            logger.info("[INICIO] Iniciando configuração da conta Gmail...")
             
             # Navegar para a página de signup
             if not self._execute_with_retry(self._navigate_to_signup):
@@ -80,9 +80,9 @@ class AccountSetup:
                 
             # Verificar e tratar a tela "Choose an account" se ela aparecer
             if self._check_and_handle_choose_account_screen():
-                logger.info("✅ Tela 'Choose an account' tratada com sucesso.")
+                logger.info("[OK] Tela 'Choose an account' tratada com sucesso.")
             else:
-                logger.info("📌 Sem tela 'Choose an account', prosseguindo com fluxo normal.")
+                logger.info(" Sem tela 'Choose an account', prosseguindo com fluxo normal.")
             
             # Continuar com os passos normais
             setup_steps = [
@@ -106,7 +106,7 @@ class AccountSetup:
             return True
 
         except Exception as e:
-            logger.error(f"❌ Erro durante configuração da conta: {str(e)}")
+            logger.error(f"[ERRO] Erro durante configuração da conta: {str(e)}")
             self.state = SetupState.FAILED
             self.account_info.state = SetupState.FAILED
             raise AccountSetupError(f"Falha na configuração da conta: {str(e)}")
@@ -121,9 +121,9 @@ class AccountSetup:
                     EC.presence_of_element_located((By.XPATH, account_locators.CHOOSE_ACCOUNT_SCREEN))
                 )
                 choose_account_present = True
-                logger.info("🔍 Tela 'Choose an account' detectada.")
+                logger.info("[BUSCA] Tela 'Choose an account' detectada.")
             except TimeoutException:
-                logger.info("📌 Tela 'Choose an account' não detectada, seguindo fluxo normal.")
+                logger.info(" Tela 'Choose an account' não detectada, seguindo fluxo normal.")
                 return False
             
             if not choose_account_present:
@@ -136,11 +136,11 @@ class AccountSetup:
                     EC.element_to_be_clickable((By.XPATH, account_locators.USE_ANOTHER_ACCOUNT_BUTTON))
                 )
                 use_another_button.click()
-                logger.info("✅ Clicado em 'Use another account' com XPath completo.")
+                logger.info("[OK] Clicado em 'Use another account' com XPath completo.")
                 time.sleep(2)  # Aguardar carregamento da próxima tela
                 return True
             except Exception as e:
-                logger.warning(f"⚠️ Erro ao clicar com XPath completo: {str(e)}")
+                logger.warning(f"[AVISO] Erro ao clicar com XPath completo: {str(e)}")
                 
                 # Tentar com alternativa mais robusta
                 try:
@@ -148,24 +148,24 @@ class AccountSetup:
                         EC.element_to_be_clickable((By.XPATH, account_locators.USE_ANOTHER_ACCOUNT_ALT))
                     )
                     use_another_button_alt.click()
-                    logger.info("✅ Clicado em 'Use another account' com XPath alternativo.")
+                    logger.info("[OK] Clicado em 'Use another account' com XPath alternativo.")
                     time.sleep(2)  # Aguardar carregamento da próxima tela
                     return True
                 except Exception as e2:
-                    logger.error(f"❌ Não foi possível clicar em 'Use another account': {str(e2)}")
+                    logger.error(f"[ERRO] Não foi possível clicar em 'Use another account': {str(e2)}")
                     
                     # Tentar uma abordagem JavaScript como último recurso
                     try:
                         self.driver.execute_script(f"document.evaluate('{account_locators.USE_ANOTHER_ACCOUNT_BUTTON}', document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue.click();")
-                        logger.info("✅ Clicado em 'Use another account' usando JavaScript.")
+                        logger.info("[OK] Clicado em 'Use another account' usando JavaScript.")
                         time.sleep(2)
                         return True
                     except Exception as e3:
-                        logger.error(f"❌ Todas as tentativas de clicar em 'Use another account' falharam: {str(e3)}")
+                        logger.error(f"[ERRO] Todas as tentativas de clicar em 'Use another account' falharam: {str(e3)}")
                         return False
         
         except Exception as e:
-            logger.error(f"❌ Erro ao verificar tela 'Choose an account': {str(e)}")
+            logger.error(f"[ERRO] Erro ao verificar tela 'Choose an account': {str(e)}")
             return False
         
     def _element_exists(self, xpath, timeout=3):
@@ -184,7 +184,7 @@ class AccountSetup:
                 func()
                 return True
             except Exception as e:
-                logger.warning(f"⚠️ Tentativa {attempt + 1} falhou: {str(e)}")
+                logger.warning(f"[AVISO] Tentativa {attempt + 1} falhou: {str(e)}")
                 if attempt < self.max_retries - 1:
                     time.sleep(self.retry_delay)
                     continue
@@ -193,7 +193,7 @@ class AccountSetup:
     def _navigate_to_signup(self):
         """Navega para a página de cadastro."""
         try:
-            logger.info("📌 Acessando página de criação de conta...")
+            logger.info(" Acessando página de criação de conta...")
             self.driver.get(account_config.GMAIL_SIGNUP_URL)
             self._wait_for_page_load()
         except Exception as e:
@@ -206,12 +206,12 @@ class AccountSetup:
                 lambda driver: driver.execute_script("return document.readyState") == "complete"
             )
         except TimeoutException:
-            logger.warning("⚠️ Timeout aguardando carregamento da página")
+            logger.warning("[AVISO] Timeout aguardando carregamento da página")
 
     def _select_personal_account(self):
         """Seleciona a opção de conta pessoal."""
         try:
-            logger.info("📌 Selecionando conta pessoal...")
+            logger.info(" Selecionando conta pessoal...")
             
             # Tenta clicar no primeiro botão com retry
             self._click_element_safely(
@@ -228,17 +228,17 @@ class AccountSetup:
                 "opção de conta pessoal"
             )
             
-            logger.info("✅ Conta pessoal selecionada com sucesso")
+            logger.info("[OK] Conta pessoal selecionada com sucesso")
             
         except TimeoutException:
-            logger.info("⚠️ Botão de seleção de conta não encontrado, continuando...")
+            logger.info("[AVISO] Botão de seleção de conta não encontrado, continuando...")
         except Exception as e:
             raise ElementInteractionError("botão de conta pessoal", "clicar", str(e))
 
     def _fill_basic_info(self):
         """Preenche informações básicas do usuário."""
         try:
-            logger.info("📌 Preenchendo informações básicas...")
+            logger.info(" Preenchendo informações básicas...")
 
             first_name_input = self.wait.until(EC.presence_of_element_located((By.ID, account_locators.FIRST_NAME)))
             first_name_input.clear()
@@ -251,7 +251,7 @@ class AccountSetup:
             self._click_next()
             time.sleep(2)
 
-            logger.info("📌 Preenchendo data de nascimento e gênero...")
+            logger.info(" Preenchendo data de nascimento e gênero...")
 
             self._remove_readonly_if_exists(By.ID, account_locators.MONTH)
             self._remove_readonly_if_exists(By.ID, account_locators.DAY)
@@ -272,14 +272,14 @@ class AccountSetup:
                 try:
                     # Tentar encontrar e clicar na opção usando o XPath definido no locators.py
                     rather_not_say_option = self.driver.find_element(By.XPATH, account_locators.GENDER_NEUTRAL_OPTION)
-                    logger.info(f"✅ Opção 'Prefiro não dizer' encontrada: {rather_not_say_option.text}")
+                    logger.info(f"[OK] Opção 'Prefiro não dizer' encontrada: {rather_not_say_option.text}")
                     
                     # Usar JavaScript para garantir a seleção
                     self.driver.execute_script("arguments[0].selected = true;", rather_not_say_option)
                     self.driver.execute_script("arguments[0].dispatchEvent(new Event('change'));", gender_dropdown)
-                    logger.info("✅ Opção 'Prefiro não dizer' selecionada com sucesso via XPath exato")
+                    logger.info("[OK] Opção 'Prefiro não dizer' selecionada com sucesso via XPath exato")
                 except Exception as xpath_error:
-                    logger.warning(f"⚠️ Não foi possível selecionar usando XPath exato: {str(xpath_error)}")
+                    logger.warning(f"[AVISO] Não foi possível selecionar usando XPath exato: {str(xpath_error)}")
                     
                     # Tentar usar Select como fallback
                     try:
@@ -299,7 +299,7 @@ class AccountSetup:
                                 "prefer not to say" in option_text):
                                 # Selecionar por índice
                                 select.select_by_index(i)
-                                logger.info(f"✅ Opção selecionada via texto: {option.text}")
+                                logger.info(f"[OK] Opção selecionada via texto: {option.text}")
                                 break
                         else:
                             # Se não encontrou por texto, tentar última opção (geralmente é a correta)
@@ -307,24 +307,24 @@ class AccountSetup:
                             last_option = options[-1].text.lower()
                             if not ("personalizar" in last_option or "custom" in last_option):
                                 select.select_by_index(len(options) - 1)
-                                logger.info(f"✅ Selecionada última opção: {options[-1].text}")
+                                logger.info(f"[OK] Selecionada última opção: {options[-1].text}")
                             else:
                                 # Tentar encontrar a opção correta por exclusão
                                 for i, option in enumerate(options):
                                     if ("personalizar" not in option.text.lower() and 
                                         "custom" not in option.text.lower()):
                                         select.select_by_index(i)
-                                        logger.info(f"✅ Opção selecionada por exclusão: {option.text}")
+                                        logger.info(f"[OK] Opção selecionada por exclusão: {option.text}")
                                         break
                     except Exception as select_error:
-                        logger.error(f"❌ Erro ao usar Select como fallback: {str(select_error)}")
+                        logger.error(f"[ERRO] Erro ao usar Select como fallback: {str(select_error)}")
 
             except Exception as e:
-                logger.error(f"❌ Erro ao selecionar gênero: {str(e)}")
+                logger.error(f"[ERRO] Erro ao selecionar gênero: {str(e)}")
             self._click_next()
             time.sleep(2)
 
-            logger.info("✅ Informações básicas preenchidas com sucesso!")
+            logger.info("[OK] Informações básicas preenchidas com sucesso!")
 
         except Exception as e:
             raise ElementInteractionError("campos básicos", "preencher", str(e))
@@ -341,30 +341,30 @@ class AccountSetup:
     def _handle_username_setup(self):
         """Gerencia o processo de configuração do username."""
         try:
-            logger.info("📌 Iniciando configuração do username...")
+            logger.info(" Iniciando configuração do username...")
 
-            # 🔹 Verificar se há tela de sugestões
+            #  Verificar se há tela de sugestões
             try:
                 if self._is_username_suggestion_screen():
-                    logger.info("✅ Tela de sugestões detectada. Tentando selecionar 'Create your own Gmail address'...")
+                    logger.info("[OK] Tela de sugestões detectada. Tentando selecionar 'Create your own Gmail address'...")
                     self._handle_username_suggestions()
                 else:
-                    logger.info("✅ Tela de sugestões NÃO apareceu. Continuando normalmente...")
+                    logger.info("[OK] Tela de sugestões NÃO apareceu. Continuando normalmente...")
             except Exception as e:
-                logger.warning(f"⚠️ Erro ao verificar tela de sugestões: {e}")
+                logger.warning(f"[AVISO] Erro ao verificar tela de sugestões: {e}")
 
-            # 🔹 Configurar o username
+            #  Configurar o username
             if not self._set_username():
-                raise UsernameError("❌ Falha ao configurar um username válido.")
+                raise UsernameError("[ERRO] Falha ao configurar um username válido.")
 
-            logger.info("✅ Username configurado com sucesso!")
+            logger.info("[OK] Username configurado com sucesso!")
 
         except UsernameError as e:
-            logger.error(f"❌ Erro ao configurar username: {e}")
+            logger.error(f"[ERRO] Erro ao configurar username: {e}")
             raise e
 
         except Exception as e:
-            logger.error(f"⚠️ Erro inesperado ao configurar username: {e}")
+            logger.error(f"[AVISO] Erro inesperado ao configurar username: {e}")
             raise UsernameError(f"Erro inesperado ao configurar username: {str(e)}")
 
     
@@ -384,33 +384,33 @@ class AccountSetup:
         try:
             suggestion_option_xpath = "//*[@id='yDmH0d']/c-wiz/div/div[2]/div/div/div/form/span/section/div/div/div[1]/div[1]/div/span/div[3]/div"
             
-            logger.info("📌 Verificando tela de sugestões de username...")
+            logger.info(" Verificando tela de sugestões de username...")
 
             # Aguarda até 5 segundos para detectar se a tela de sugestões está visível
             if self._element_exists(suggestion_option_xpath, timeout=5):
-                logger.info("✅ Tela de sugestões detectada. Tentando selecionar 'Create your own Gmail address'...")
+                logger.info("[OK] Tela de sugestões detectada. Tentando selecionar 'Create your own Gmail address'...")
 
                 suggestion_option = self.wait.until(EC.element_to_be_clickable((By.XPATH, suggestion_option_xpath)))
 
-                # 🔹 Verifica se o elemento está visível e interagível
+                #  Verifica se o elemento está visível e interagível
                 if suggestion_option.is_displayed() and suggestion_option.is_enabled():
                     try:
-                        # 🔥 Tenta clicar normalmente
+                        #  Tenta clicar normalmente
                         suggestion_option.click()
                     except:
-                        # 🔥 Se falhar, tenta clicar via JavaScript
-                        logger.warning("⚠️ Clique padrão falhou, tentando via JavaScript...")
+                        #  Se falhar, tenta clicar via JavaScript
+                        logger.warning("[AVISO] Clique padrão falhou, tentando via JavaScript...")
                         self.driver.execute_script("arguments[0].click();", suggestion_option)
 
-                    logger.info("✅ Opção 'Create your own Gmail address' selecionada.")
+                    logger.info("[OK] Opção 'Create your own Gmail address' selecionada.")
                     time.sleep(2)  # Pequeno delay para garantir que a nova tela carregue
                 else:
-                    logger.error("❌ O elemento 'Create your own Gmail address' não está visível ou interagível.")
+                    logger.error("[ERRO] O elemento 'Create your own Gmail address' não está visível ou interagível.")
 
             else:
-                logger.info("✅ Tela de sugestões de username NÃO apareceu. Continuando normalmente...")
+                logger.info("[OK] Tela de sugestões de username NÃO apareceu. Continuando normalmente...")
         except Exception as e:
-            logger.error(f"❌ Erro ao tentar selecionar a opção 'Create your own Gmail address': {e}")
+            logger.error(f"[ERRO] Erro ao tentar selecionar a opção 'Create your own Gmail address': {e}")
 
 
 
@@ -422,43 +422,43 @@ class AccountSetup:
         
         for attempt in range(max_attempts):
             try:
-                # 🔹 1. Aguarda o campo de username estar visível e interativo
+                #  1. Aguarda o campo de username estar visível e interativo
                 username_field = self.wait.until(EC.presence_of_element_located((By.XPATH, username_locators.USERNAME_FIELD)))
                 self.wait.until(EC.element_to_be_clickable((By.XPATH, username_locators.USERNAME_FIELD)))
 
                 self.driver.execute_script("arguments[0].scrollIntoView();", username_field)
                 self.driver.execute_script("arguments[0].click();", username_field)
 
-                # 🔹 2. Gera novo username se não for a primeira tentativa
+                #  2. Gera novo username se não for a primeira tentativa
                 if attempt > 0:
                     self.account_info.username = self._generate_new_username()
-                    logger.warning(f"⚠️ Tentativa {attempt}: Username já estava em uso. Tentando {self.account_info.username}")
+                    logger.warning(f"[AVISO] Tentativa {attempt}: Username já estava em uso. Tentando {self.account_info.username}")
 
-                # 🔹 3. Insere o username e clica em "Next"
+                #  3. Insere o username e clica em "Next"
                 username_field.clear()
                 username_field.send_keys(self.account_info.username)
-                logger.info(f"✅ Tentativa {attempt}: Testando username {self.account_info.username}")
+                logger.info(f"[OK] Tentativa {attempt}: Testando username {self.account_info.username}")
 
                 self._click_next()
                 time.sleep(2)  # Aguarda verificação
 
-                # 🔹 4. Verifica se a mensagem "That username is taken" aparece
+                #  4. Verifica se a mensagem "That username is taken" aparece
                 try:
                     self.wait.until(EC.presence_of_element_located((By.XPATH, username_taken_xpath)))
-                    logger.warning("⚠️ Nome de usuário já está em uso. Tentando outro...")
+                    logger.warning("[AVISO] Nome de usuário já está em uso. Tentando outro...")
                     continue  # Tenta novamente com um novo username
                 except TimeoutException:
-                    logger.info("✅ Username aceito!")
+                    logger.info("[OK] Username aceito!")
                     return True  # Adicionado return True explícito aqui
 
             except TimeoutException:
-                logger.error("❌ Erro: Campo de username não encontrado!")
-                raise UsernameError("⏳ Campo de username não apareceu na tela.")
+                logger.error("[ERRO] Erro: Campo de username não encontrado!")
+                raise UsernameError(" Campo de username não apareceu na tela.")
 
             except Exception as e:
-                logger.warning(f"⚠️ Erro ao preencher username: {str(e)}")
+                logger.warning(f"[AVISO] Erro ao preencher username: {str(e)}")
 
-        raise UsernameError("🚨 Número máximo de tentativas atingido. Não foi possível encontrar um username disponível.")
+        raise UsernameError("[ALERTA] Número máximo de tentativas atingido. Não foi possível encontrar um username disponível.")
 
 
 
@@ -475,7 +475,7 @@ class AccountSetup:
     def _setup_password(self):
         """Configura a senha da conta."""
         try:
-            logger.info("📌 Configurando senha...")
+            logger.info(" Configurando senha...")
             
             self._fill_input_safely(
                 By.XPATH,
@@ -490,7 +490,7 @@ class AccountSetup:
             )
 
             self._click_next()
-            logger.info("✅ Senha configurada com sucesso")
+            logger.info("[OK] Senha configurada com sucesso")
             
         except Exception as e:
             raise ElementInteractionError("campos de senha", "preencher", str(e))
@@ -519,15 +519,15 @@ class AccountSetup:
                 # Tentar JavaScript como fallback
                 try:
                     self.driver.execute_script("arguments[0].click();", element)
-                    logger.info(f"✅ Clicou em {element_name} via JavaScript")
+                    logger.info(f"[OK] Clicou em {element_name} via JavaScript")
                 except Exception as js_error:
-                    logger.error(f"❌ Falha ao clicar via JavaScript: {str(js_error)}")
+                    logger.error(f"[ERRO] Falha ao clicar via JavaScript: {str(js_error)}")
                     
                     # Última tentativa usando Actions
                     from selenium.webdriver.common.action_chains import ActionChains
                     actions = ActionChains(self.driver)
                     actions.move_to_element(element).click().perform()
-                    logger.info(f"✅ Clicou em {element_name} via ActionChains")
+                    logger.info(f"[OK] Clicou em {element_name} via ActionChains")
         except Exception as e:
             raise ElementInteractionError(element_name, "clicar", str(e))
 
