@@ -1,4 +1,3 @@
-
 import logging
 import json
 import os
@@ -7,6 +6,7 @@ import time
 import uuid
 from threading import Thread
 import requests
+
 
 # Adicionando os diretórios necessários ao PYTHONPATH
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -22,11 +22,508 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Importar módulos locais após configurar PYTHONPATH
-from flask import Flask, request, jsonify
-from powerads_api.profiles import ProfileManager, get_profiles
+from flask_swagger_ui import get_swaggerui_blueprint
 from credentials.credentials_manager import get_credential
+from powerads_api.profiles import ProfileManager, get_profiles
+from flask import Flask, request, jsonify, send_from_directory
 
 app = Flask(__name__)
+
+# Configuração do Swagger UI
+SWAGGER_URL = '/api/docs'  # URL para acessar a documentação da API
+API_URL = '/static/swagger.json'  # Arquivo de especificação da API
+
+# Criar diretório para arquivos estáticos se não existir
+static_dir = os.path.join(current_dir, 'static')
+os.makedirs(static_dir, exist_ok=True)
+
+# Criar a especificação Swagger
+swagger_spec = {
+    "swagger": "2.0",
+    "info": {
+        "title": "AdsPower RPA API",
+        "description": "API para automação RPA com AdsPower",
+        "version": "1.0.0"
+    },
+    "basePath": "/",
+    "schemes": ["http", "https"],
+    "consumes": ["application/json"],
+    "produces": ["application/json"],
+    "paths": {
+        "/health": {
+            "get": {
+                "summary": "Verificação de saúde da API",
+                "description": "Endpoint para verificar se o serviço está funcionando",
+                "produces": ["application/json"],
+                "responses": {
+                    "200": {
+                        "description": "Serviço funcionando corretamente",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "status": {"type": "string"}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sms-webhook": {
+            "post": {
+                "summary": "Receber notificações de SMS",
+                "description": "Endpoint para receber notificações de SMS da API SMS-Activate",
+                "produces": ["application/json"],
+                "parameters": [
+                    {
+                        "name": "body",
+                        "in": "body",
+                        "description": "Dados do webhook SMS",
+                        "required": True,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string"},
+                                "phone": {"type": "string"},
+                                "sms": {"type": "string"},
+                                "status": {"type": "string"}
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "SMS recebido com sucesso",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "success": {"type": "boolean"},
+                                "message": {"type": "string"}
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Dados incompletos",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "success": {"type": "boolean"},
+                                "error": {"type": "string"}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sms-status/{activation_id}": {
+            "get": {
+                "summary": "Verificar status de SMS",
+                "description": "Endpoint para verificar o status de um SMS pelo ID de ativação",
+                "produces": ["application/json"],
+                "parameters": [
+                    {
+                        "name": "activation_id",
+                        "in": "path",
+                        "description": "ID de ativação do SMS",
+                        "required": True,
+                        "type": "string"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Status do SMS",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "404": {
+                        "description": "SMS não encontrado",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "success": {"type": "boolean"},
+                                "error": {"type": "string"}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/profiles": {
+            "get": {
+                "summary": "Listar perfis do AdsPower",
+                "description": "Endpoint para listar todos os perfis do AdsPower",
+                "produces": ["application/json"],
+                "parameters": [
+                    {
+                        "name": "force_refresh",
+                        "in": "query",
+                        "description": "Forçar atualização dos perfis",
+                        "required": False,
+                        "type": "boolean",
+                        "default": False
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Lista de perfis",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "success": {"type": "boolean"},
+                                "count": {"type": "integer"},
+                                "profiles": {
+                                    "type": "array",
+                                    "items": {"type": "object"}
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Nenhum perfil encontrado",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "success": {"type": "boolean"},
+                                "error": {"type": "string"}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/profiles/{user_id}": {
+            "get": {
+                "summary": "Obter detalhes de um perfil",
+                "description": "Endpoint para obter detalhes de um perfil específico",
+                "produces": ["application/json"],
+                "parameters": [
+                    {
+                        "name": "user_id",
+                        "in": "path",
+                        "description": "ID do perfil",
+                        "required": True,
+                        "type": "string"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Detalhes do perfil",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "success": {"type": "boolean"},
+                                "profile": {"type": "object"}
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Perfil não encontrado",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "success": {"type": "boolean"},
+                                "error": {"type": "string"}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/gmail-job-status/{job_id}": {
+            "get": {
+                "summary": "Verificar status de job Gmail",
+                "description": "Endpoint para verificar o status de um job de criação de Gmail",
+                "produces": ["application/json"],
+                "parameters": [
+                    {
+                        "name": "job_id",
+                        "in": "path",
+                        "description": "ID do job",
+                        "required": True,
+                        "type": "string"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Status do job",
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                }
+            }
+        },
+        "/gmail-accounts": {
+            "get": {
+                "summary": "Listar contas Gmail criadas",
+                "description": "Endpoint para listar todas as contas Gmail criadas",
+                "produces": ["application/json"],
+                "parameters": [
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "description": "Número máximo de contas a retornar",
+                        "required": False,
+                        "type": "integer",
+                        "default": 100
+                    },
+                    {
+                        "name": "newest_first",
+                        "in": "query",
+                        "description": "Retornar contas mais recentes primeiro",
+                        "required": False,
+                        "type": "boolean",
+                        "default": True
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Lista de contas Gmail",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "success": {"type": "boolean"},
+                                "count": {"type": "integer"},
+                                "accounts": {
+                                    "type": "array",
+                                    "items": {"type": "object"}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/n8n/batch-gmail-creation": {
+            "post": {
+                "summary": "Criar contas Gmail em lote",
+                "description": "Endpoint para criar múltiplas contas Gmail em lote",
+                "produces": ["application/json"],
+                "parameters": [
+                    {
+                        "name": "body",
+                        "in": "body",
+                        "description": "Dados para criação em lote",
+                        "required": True,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "profiles": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "user_id": {"type": "string"},
+                                            "phone_params": {"type": "object"},
+                                            "headless": {"type": "boolean"}
+                                        }
+                                    }
+                                },
+                                "common_params": {"type": "object"},
+                                "max_concurrent": {"type": "integer"},
+                                "webhook_callback": {"type": "string"}
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Lote criado com sucesso",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "success": {"type": "boolean"},
+                                "batch_id": {"type": "string"},
+                                "total_jobs": {"type": "integer"},
+                                "jobs": {"type": "array"},
+                                "status_url": {"type": "string"}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/n8n/batch-status/{batch_id}": {
+            "get": {
+                "summary": "Verificar status de lote",
+                "description": "Endpoint para verificar o status de um lote de criação de contas Gmail",
+                "produces": ["application/json"],
+                "parameters": [
+                    {
+                        "name": "batch_id",
+                        "in": "path",
+                        "description": "ID do lote",
+                        "required": True,
+                        "type": "string"
+                    },
+                    {
+                        "name": "include_jobs",
+                        "in": "query",
+                        "description": "Incluir detalhes de cada job",
+                        "required": False,
+                        "type": "boolean",
+                        "default": False
+                    },
+                    {
+                        "name": "include_accounts",
+                        "in": "query",
+                        "description": "Incluir detalhes das contas criadas",
+                        "required": False,
+                        "type": "boolean",
+                        "default": False
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Status do lote",
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                }
+            }
+        },
+        "/n8n/batch-cancel/{batch_id}": {
+            "post": {
+                "summary": "Cancelar lote",
+                "description": "Endpoint para cancelar um lote de criação de contas Gmail",
+                "produces": ["application/json"],
+                "parameters": [
+                    {
+                        "name": "batch_id",
+                        "in": "path",
+                        "description": "ID do lote",
+                        "required": True,
+                        "type": "string"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Lote cancelado",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "success": {"type": "boolean"},
+                                "message": {"type": "string"},
+                                "batch_id": {"type": "string"},
+                                "status": {"type": "string"},
+                                "cancelled_jobs": {"type": "integer"}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/n8n-job-status/{job_id}": {
+            "get": {
+                "summary": "Verificar status de job",
+                "description": "Endpoint para verificar o status de um job específico",
+                "produces": ["application/json"],
+                "parameters": [
+                    {
+                        "name": "job_id",
+                        "in": "path",
+                        "description": "ID do job",
+                        "required": True,
+                        "type": "string"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Status do job",
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                }
+            }
+        },
+        "/n8n/create-gmail/{user_id}": {
+            "post": {
+                "summary": "Criar conta Gmail assíncrona",
+                "description": "Endpoint para criar uma única conta Gmail de forma assíncrona",
+                "produces": ["application/json"],
+                "parameters": [
+                    {
+                        "name": "user_id",
+                        "in": "path",
+                        "description": "ID do perfil",
+                        "required": True,
+                        "type": "string"
+                    },
+                    {
+                        "name": "body",
+                        "in": "body",
+                        "description": "Parâmetros para a criação da conta",
+                        "required": False,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "phone_params": {"type": "object"},
+                                "headless": {"type": "boolean"},
+                                "max_wait_time": {"type": "integer"},
+                                "webhook_callback": {"type": "string"}
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Job criado com sucesso",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "success": {"type": "boolean"},
+                                "message": {"type": "string"},
+                                "job_id": {"type": "string"},
+                                "user_id": {"type": "string"},
+                                "status": {"type": "string"},
+                                "status_url": {"type": "string"}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/n8n/help": {
+            "get": {
+                "summary": "Ajuda da API",
+                "description": "Endpoint de ajuda que lista todos os endpoints disponíveis para integração com n8n",
+                "produces": ["application/json"],
+                "responses": {
+                    "200": {
+                        "description": "Documentação da API",
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+# Salvar a especificação Swagger em um arquivo JSON
+with open(os.path.join(static_dir, 'swagger.json'), 'w') as f:
+    json.dump(swagger_spec, f, indent=2)
+
+# Registrar o blueprint do Swagger UI
+swaggerui_blueprint = get_swaggerui_blueprint(
+    SWAGGER_URL,
+    API_URL,
+    config={
+        'app_name': "AdsPower RPA API"
+    }
+)
+app.register_blueprint(swaggerui_blueprint, url_prefix=SWAGGER_URL)
+
+# Rota para servir arquivos estáticos (swagger.json)
+
+
+@app.route('/static/<path:path>')
+def send_static(path):
+    return send_from_directory(static_dir, path)
+
 
 # Caminho para armazenar dados dos SMS recebidos
 SMS_DATA_DIR = "sms_data"
