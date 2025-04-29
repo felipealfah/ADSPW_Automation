@@ -1,3 +1,7 @@
+from flask import Flask, request, jsonify, send_from_directory
+from powerads_api.profiles import ProfileManager, get_profiles
+from credentials.credentials_manager import get_credential
+from flask_swagger_ui import get_swaggerui_blueprint
 import logging
 import json
 import os
@@ -6,6 +10,7 @@ import time
 import uuid
 from threading import Thread
 import requests
+from datetime import datetime
 
 
 # Adicionando os diretórios necessários ao PYTHONPATH
@@ -22,10 +27,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Importar módulos locais após configurar PYTHONPATH
-from flask_swagger_ui import get_swaggerui_blueprint
-from credentials.credentials_manager import get_credential
-from powerads_api.profiles import ProfileManager, get_profiles
-from flask import Flask, request, jsonify, send_from_directory
 
 app = Flask(__name__)
 
@@ -2223,7 +2224,7 @@ def create_gmail_account(user_id):
             if status_data.get("status") in ["completed", "failed"]:
                 # Construir resposta compatível com o formato antigo
                 if status_data.get("status") == "completed":
-                    return jsonify({
+                    return jsonify({  # <- CORRIGIDO: Agora está corretamente indentado
                         "success": True,
                         "message": "Conta Gmail criada com sucesso",
                         "account": status_data.get("result")
