@@ -62,20 +62,20 @@ class GmailCreator:
         """
         try:
             if not self.browser_manager.ensure_browser_ready(user_id):
-                logger.error("❌ Falha ao garantir que o browser está pronto")
+                logger.error("[ERRO] Falha ao garantir que o browser está pronto")
                 return False
 
             self.driver = self.browser_manager.get_driver()
             if not self.driver:
-                logger.error("❌ Driver não disponível")
+                logger.error("[ERRO] Driver não disponível")
                 return False
 
             self.wait = WebDriverWait(self.driver, timeouts.DEFAULT_WAIT)
-            logger.info("✅ Browser inicializado com sucesso")
+            logger.info("[OK] Browser inicializado com sucesso")
             return True
 
         except Exception as e:
-            logger.error(f"❌ Erro ao inicializar browser: {str(e)}")
+            logger.error(f"[ERRO] Erro ao inicializar browser: {str(e)}")
             return False
 
     def create_account(self, user_id: str, phone_params=None):
@@ -90,11 +90,11 @@ class GmailCreator:
             tuple: (sucesso, dados_da_conta)
         """
         try:
-            logger.info("🚀 Iniciando criação da conta Gmail...")
+            logger.info("[INICIO] Iniciando criação da conta Gmail...")
 
             # Inicializar o browser primeiro
             if not self.initialize_browser(user_id):
-                raise GmailCreationError("❌ Falha ao inicializar o browser")
+                raise GmailCreationError("[ERRO] Falha ao inicializar o browser")
 
             # Contador para tentativas de criação completa da conta
             complete_attempts = 0
@@ -103,7 +103,7 @@ class GmailCreator:
             while complete_attempts < max_complete_attempts:
                 complete_attempts += 1
                 logger.info(
-                    f"🔄 Tentativa {complete_attempts} de {max_complete_attempts} para criar conta completa")
+                    f"[ATUALIZANDO] Tentativa {complete_attempts} de {max_complete_attempts} para criar conta completa")
 
                 try:
                     # Passo 1: Configuração inicial da conta
@@ -111,7 +111,7 @@ class GmailCreator:
                     account_setup = AccountSetup(self.driver, self.credentials)
                     if not account_setup.start_setup():
                         raise GmailCreationError(
-                            "❌ Falha na configuração inicial da conta.")
+                            "[ERRO] Falha na configuração inicial da conta.")
 
                     # Passo 2: Verificação de telefone
                     self.state = GmailCreationState.PHONE_VERIFICATION
@@ -127,11 +127,11 @@ class GmailCreator:
                     # Verificar se a tela de verificação de telefone está presente
                     if phone_verify._check_phone_screen():
                         logger.info(
-                            "📞 Tela de verificação de telefone detectada.")
+                            " Tela de verificação de telefone detectada.")
                         # Se temos parâmetros de telefone para reutilização
                         if phone_params and isinstance(phone_params, dict) and phone_params.get('reuse_number'):
                             logger.info(
-                                f"♻️ Configurando reutilização de número: {phone_params.get('phone_number')}")
+                                f" Configurando reutilização de número: {phone_params.get('phone_number')}")
                             phone_verify.reuse_number = True
                             phone_verify.predefined_number = phone_params.get(
                                 'phone_number')
@@ -150,7 +150,7 @@ class GmailCreator:
 
                         if not phone_verification_success:
                             logger.warning(
-                                "⚠️ Falha na verificação de telefone. Tentando reiniciar processo...")
+                                "[AVISO] Falha na verificação de telefone. Tentando reiniciar processo...")
                             # Recarregar a página de início e tentar novamente em uma nova iteração
                             self.driver.get(
                                 "https://accounts.google.com/signup")
@@ -161,11 +161,11 @@ class GmailCreator:
                         phone_data = phone_verify.get_current_phone_data()
                         if not phone_data:
                             logger.error(
-                                "❌ Falha ao obter dados do telefone após verificação")
+                                "[ERRO] Falha ao obter dados do telefone após verificação")
                             continue  # Tenta novamente o processo completo
                     else:
                         logger.info(
-                            "📞 Tela de verificação de telefone não detectada, pulando para aceitação dos termos.")
+                            " Tela de verificação de telefone não detectada, pulando para aceitação dos termos.")
                         # Se não houver verificação de telefone, definimos valores padrão
                         phone_data = {
                             'phone_number': phone_params.get('phone_number') if phone_params else None,
@@ -195,7 +195,7 @@ class GmailCreator:
 
                     if not terms_accepted:
                         logger.warning(
-                            "⚠️ Falha na aceitação dos termos. Tentando reiniciar processo...")
+                            "[AVISO] Falha na aceitação dos termos. Tentando reiniciar processo...")
                         # Recarregar a página de início e tentar novamente
                         self.driver.get("https://accounts.google.com/signup")
                         time.sleep(5)
@@ -219,7 +219,7 @@ class GmailCreator:
 
                     if not account_verified:
                         logger.warning(
-                            "⚠️ Falha na verificação final da conta. Tentando reiniciar processo...")
+                            "[AVISO] Falha na verificação final da conta. Tentando reiniciar processo...")
                         # Recarregar a página de início e tentar novamente
                         self.driver.get("https://accounts.google.com/signup")
                         time.sleep(5)
@@ -228,7 +228,7 @@ class GmailCreator:
                     # Se chegou aqui, tudo deu certo!
                     self.state = GmailCreationState.COMPLETED
 
-                    # 🔹 Retornar os dados completos da conta
+                    #  Retornar os dados completos da conta
                     account_data = {
                         "first_name": self.credentials["first_name"],
                         "last_name": self.credentials["last_name"],
@@ -242,19 +242,19 @@ class GmailCreator:
                     }
 
                     logger.info(
-                        f"✅ Conta criada com sucesso! Retornando os dados: {account_data}")
+                        f"[OK] Conta criada com sucesso! Retornando os dados: {account_data}")
                     return True, account_data
 
                 except Exception as inner_e:
                     logger.error(
-                        f"❌ Erro durante a tentativa {complete_attempts}: {str(inner_e)}")
+                        f"[ERRO] Erro durante a tentativa {complete_attempts}: {str(inner_e)}")
                     if complete_attempts < max_complete_attempts:
-                        logger.info("🔄 Reiniciando processo completo...")
+                        logger.info("[ATUALIZANDO] Reiniciando processo completo...")
                         self.driver.get("https://accounts.google.com/signup")
                         time.sleep(5)
                     else:
                         logger.error(
-                            f"❌ Todas as {max_complete_attempts} tentativas completas falharam")
+                            f"[ERRO] Todas as {max_complete_attempts} tentativas completas falharam")
                         raise GmailCreationError(
                             f"Falha após {max_complete_attempts} tentativas completas")
 
@@ -262,9 +262,9 @@ class GmailCreator:
             return False, None
 
         except GmailCreationError as e:
-            logger.error(f"🚨 Erro durante o processo: {str(e)}")
+            logger.error(f"[ALERTA] Erro durante o processo: {str(e)}")
             return False, None
 
         except Exception as e:
-            logger.error(f"❌ Erro inesperado: {str(e)}")
+            logger.error(f"[ERRO] Erro inesperado: {str(e)}")
             return False, None

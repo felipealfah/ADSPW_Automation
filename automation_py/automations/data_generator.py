@@ -53,7 +53,7 @@ def save_credentials(credentials):
         with open(CREDENTIALS_PATH, "w") as file:
             json.dump(existing_data, file, indent=4)
     except Exception as e:
-        print(f"❌ Erro ao salvar credenciais: {e}")
+        print(f"[ERRO] Erro ao salvar credenciais: {e}")
 
 def generate_gmail_credentials():
     """Gera todas as credenciais para criar uma conta no Gmail"""

@@ -1,5 +1,3 @@
-
-
 import sys
 import time
 import json
@@ -182,7 +180,7 @@ CREDENTIALS_PATH = "credentials/gmail.json"
 
 # Inicializar estado da sessão para rastrear atualizações de credenciais
 if 'current_page' not in st.session_state:
-    st.session_state.current_page = "🔑 Gerenciar Credenciais"  # Inicializa a página atual
+    st.session_state.current_page = " Gerenciar Credenciais"  # Inicializa a página atual
 
 # Ativar recarregamento amplo na sessão para componentes gerenciados
 if 'initialized' not in st.session_state:
@@ -195,27 +193,27 @@ if 'initialized' not in st.session_state:
 phone_manager = PhoneManager()
 
 # Criar menu lateral no Streamlit
-st.sidebar.title("🔧 Menu de Navegação")
+st.sidebar.title(" Menu de Navegação")
 
 # Seção de Automações
 st.sidebar.subheader("Automações")
-if st.sidebar.button("📩 Automação Gmail"):
-    st.session_state.current_page = "📩 Automação Gmail"
+if st.sidebar.button(" Automação Gmail"):
+    st.session_state.current_page = " Automação Gmail"
 
 # Seção de Administração
 st.sidebar.subheader("Adm")
-if st.sidebar.button("🔑 Gerenciar Credenciais"):
-    st.session_state.current_page = "🔑 Gerenciar Credenciais"
+if st.sidebar.button(" Gerenciar Credenciais"):
+    st.session_state.current_page = " Gerenciar Credenciais"
 
-if st.sidebar.button("📜 Contas Criadas"):
-    st.session_state.current_page = "📜 Contas Criadas"
+if st.sidebar.button(" Contas Criadas"):
+    st.session_state.current_page = " Contas Criadas"
 
-if st.sidebar.button("📱 Gerenciar Números"):
-    st.session_state.current_page = "📱 Gerenciar Números"
+if st.sidebar.button("[TELEFONE] Gerenciar Números"):
+    st.session_state.current_page = "[TELEFONE] Gerenciar Números"
 
 # Adicionar ao menu lateral no arquivo app.py, após a seção "Adm"
-if st.sidebar.button("💰 Consulta de Preços"):
-    st.session_state.current_page = "💰 Consulta de Preços"
+if st.sidebar.button(" Consulta de Preços"):
+    st.session_state.current_page = " Consulta de Preços"
 
 # Adicionar informações de saldo na barra lateral
 try:
@@ -223,9 +221,9 @@ try:
     if sms_balance is not None:
         saldo_color = "green" if sms_balance > 20 else "orange" if sms_balance > 5 else "red"
         st.sidebar.markdown(
-            f"💰 **Saldo SMS:** <span style='color:{saldo_color}'>{sms_balance:.2f} RUB</span>", unsafe_allow_html=True)
+            f" **Saldo SMS:** <span style='color:{saldo_color}'>{sms_balance:.2f} RUB</span>", unsafe_allow_html=True)
     else:
-        st.sidebar.warning("⚠️ Não foi possível obter o saldo SMS")
+        st.sidebar.warning("[AVISO] Não foi possível obter o saldo SMS")
 except Exception as e:
     logging.error(f"Erro ao obter saldo SMS: {str(e)}")
 
@@ -233,19 +231,19 @@ except Exception as e:
 if adspower_manager:
     api_health = adspower_manager.check_api_health()
     if api_health:
-        st.sidebar.success("✅ AdsPower conectado")
+        st.sidebar.success("[OK] AdsPower conectado")
     else:
-        st.sidebar.error("❌ AdsPower não disponível")
+        st.sidebar.error("[ERRO] AdsPower não disponível")
 else:
-    st.sidebar.warning("⚠️ Chave de API do AdsPower não configurada")
+    st.sidebar.warning("[AVISO] Chave de API do AdsPower não configurada")
 
 # **ABA 1 - GERENCIAMENTO DE CREDENCIAIS**
-if st.session_state.current_page == "🔑 Gerenciar Credenciais":
-    st.title("🔑 Gerenciamento de Credenciais")
+if st.session_state.current_page == " Gerenciar Credenciais":
+    st.title(" Gerenciamento de Credenciais")
     logging.info("Acessando aba de Gerenciamento de Credenciais")
 
     # Botão para recarregar credenciais manualmente (para debugging)
-    if st.button("🔄 Recarregar Credenciais"):
+    if st.button("[ATUALIZANDO] Recarregar Credenciais"):
         logging.info("Recarregando credenciais manualmente")
         st.session_state.last_credentials_update = time.time()
         api_config = refresh_api_configurations()
@@ -253,11 +251,11 @@ if st.session_state.current_page == "🔑 Gerenciar Credenciais":
         PA_BASE_URL = api_config["pa_base_url"]
         HEADERS = api_config["pa_headers"]
         adspower_manager = api_config["adspower_manager"]
-        st.success("✅ Credenciais recarregadas com sucesso!")
+        st.success("[OK] Credenciais recarregadas com sucesso!")
 
     # Carregar credenciais existentes
     credentials = load_credentials(force_reload=True)
-    st.subheader("📜 Credenciais Atuais")
+    st.subheader(" Credenciais Atuais")
     if credentials:
         for key, value in credentials.items():
             # Esconder a parte principal da chave de API para segurança
@@ -267,17 +265,17 @@ if st.session_state.current_page == "🔑 Gerenciar Credenciais":
                 display_value = value
             st.write(f"**{key}**: `{display_value}`")
     else:
-        st.warning("⚠️ Nenhuma credencial encontrada.")
+        st.warning("[AVISO] Nenhuma credencial encontrada.")
 
     # Seção específica para configuração do AdsPower
-    st.subheader("⚙️ Configuração da API AdsPower")
+    st.subheader(" Configuração da API AdsPower")
 
     with st.form("adspower_config_form"):
         pa_base_url = st.text_input(
             "Endereço da API do AdsPower",
             value=credentials.get(
                 "PA_BASE_URL", "http://local.adspower.net:50325"),
-            help="Por exemplo: http://local.adspower.net:50325 ou http://host.docker.internal:50325"
+            help="Por exemplo: http://local.adspower.net:50325 ou http://localhost:50325"
         )
 
         pa_api_key = st.text_input(
@@ -295,7 +293,7 @@ if st.session_state.current_page == "🔑 Gerenciar Credenciais":
         )
 
         adspower_submit = st.form_submit_button(
-            "💾 Salvar Configurações AdsPower")
+            "[SALVO] Salvar Configurações AdsPower")
 
         if adspower_submit:
             changes_made = False
@@ -326,27 +324,27 @@ if st.session_state.current_page == "🔑 Gerenciar Credenciais":
                 HEADERS = api_config["pa_headers"]
                 adspower_manager = api_config["adspower_manager"]
                 st.success(
-                    "✅ Configurações do AdsPower atualizadas com sucesso!")
+                    "[OK] Configurações do AdsPower atualizadas com sucesso!")
             else:
-                st.warning("⚠️ Nenhuma mudança foi feita nas configurações.")
+                st.warning("[AVISO] Nenhuma mudança foi feita nas configurações.")
 
     # Dicas para a configuração do AdsPower
     st.info("""
-    **💡 Dicas para configuração do AdsPower:**
+    ** Dicas para configuração do AdsPower:**
     
     1. Verifique se o AdsPower está em execução em sua máquina
     2. Certifique-se de que a API está habilitada nas configurações do AdsPower
     3. O endereço padrão é `http://local.adspower.net:50325`
-    4. Se estiver usando Docker, você pode precisar usar `http://host.docker.internal:50325`
+    4. Você também pode usar `http://localhost:50325` se o padrão não funcionar
     5. Para ambiente de produção, use o endereço IP exato da máquina onde o AdsPower está instalado
     """)
 
     # Formulário para adicionar/atualizar chave (opcional, para outras chaves)
-    st.subheader("➕ Adicionar/Atualizar Outras Chaves")
+    st.subheader(" Adicionar/Atualizar Outras Chaves")
     with st.form("add_key_form"):
         key_name = st.text_input("Nome da Chave (ex: CUSTOM_API_KEY)")
         key_value = st.text_input("Valor da Chave", type="password")
-        submit_button = st.form_submit_button("💾 Salvar Chave")
+        submit_button = st.form_submit_button("[SALVO] Salvar Chave")
 
         if submit_button:
             if key_name and key_value:
@@ -359,22 +357,22 @@ if st.session_state.current_page == "🔑 Gerenciar Credenciais":
                     HEADERS = api_config["pa_headers"]
                     adspower_manager = api_config["adspower_manager"]
                     st.success(
-                        f"✅ Chave '{key_name}' adicionada/atualizada com sucesso!")
+                        f"[OK] Chave '{key_name}' adicionada/atualizada com sucesso!")
                     logging.info(
                         f"Chave '{key_name}' adicionada/atualizada com sucesso")
                 else:
-                    st.error("❌ Erro ao salvar a chave. Verifique os logs.")
+                    st.error("[ERRO] Erro ao salvar a chave. Verifique os logs.")
                     logging.error(f"Erro ao salvar a chave '{key_name}'")
             else:
-                st.error("❌ Nome e valor da chave são obrigatórios.")
+                st.error("[ERRO] Nome e valor da chave são obrigatórios.")
                 logging.warning("Tentativa de salvar chave sem nome ou valor")
 
     # Seção para excluir chave
-    st.subheader("🗑️ Remover Chave de API")
+    st.subheader(" Remover Chave de API")
     key_to_delete = st.selectbox("Selecione a chave para remover", options=list(
         credentials.keys()) if credentials else [])
 
-    if st.button("🗑️ Excluir Chave"):
+    if st.button(" Excluir Chave"):
         if key_to_delete:
             logging.info(f"Tentando excluir chave: {key_to_delete}")
             if delete_api_key(key_to_delete):
@@ -384,30 +382,30 @@ if st.session_state.current_page == "🔑 Gerenciar Credenciais":
                 PA_BASE_URL = api_config["pa_base_url"]
                 HEADERS = api_config["pa_headers"]
                 adspower_manager = api_config["adspower_manager"]
-                st.success(f"✅ Chave '{key_to_delete}' removida com sucesso!")
+                st.success(f"[OK] Chave '{key_to_delete}' removida com sucesso!")
                 logging.info(f"Chave '{key_to_delete}' removida com sucesso")
             else:
-                st.error("❌ Erro ao remover a chave. Verifique os logs.")
+                st.error("[ERRO] Erro ao remover a chave. Verifique os logs.")
                 logging.error(f"Erro ao remover a chave '{key_to_delete}'")
         else:
-            st.warning("⚠️ Nenhuma chave selecionada.")
+            st.warning("[AVISO] Nenhuma chave selecionada.")
             logging.warning("Tentativa de excluir chave sem selecionar uma")
 
     # Mostrar informações sobre as APIs configuradas
-    st.subheader("🔌 Status das APIs")
+    st.subheader(" Status das APIs")
 
     # Status da API SMS
     sms_balance = None
     try:
         sms_balance = sms_api.get_balance()
         if sms_balance is not None:
-            st.success(f"✅ API SMS conectada. Saldo: {sms_balance} RUB")
+            st.success(f"[OK] API SMS conectada. Saldo: {sms_balance} RUB")
             logging.info(f"API SMS conectada. Saldo: {sms_balance} RUB")
         else:
-            st.error("❌ API SMS não conectada. Verifique sua chave de API.")
+            st.error("[ERRO] API SMS não conectada. Verifique sua chave de API.")
             logging.error("API SMS não conectada")
     except Exception as e:
-        st.error(f"❌ Erro ao conectar à API SMS: {str(e)}")
+        st.error(f"[ERRO] Erro ao conectar à API SMS: {str(e)}")
         logging.error(f"Erro ao conectar à API SMS: {str(e)}")
 
     # Status da API AdsPower
@@ -419,26 +417,26 @@ if st.session_state.current_page == "🔑 Gerenciar Credenciais":
                 if api_health:
                     profiles = adspower_manager.get_all_profiles()
                     st.success(
-                        f"✅ API AdsPower conectada. Total de perfis: {len(profiles)}")
+                        f"[OK] API AdsPower conectada. Total de perfis: {len(profiles)}")
                     logging.info(
                         f"API AdsPower conectada. Total de perfis: {len(profiles)}")
                 else:
                     st.warning(
-                        "⚠️ API AdsPower não responde corretamente. Verifique a conexão.")
+                        "[AVISO] API AdsPower não responde corretamente. Verifique a conexão.")
                     logging.warning("API AdsPower não responde corretamente")
             else:
-                st.warning("⚠️ Gerenciador AdsPower não inicializado.")
+                st.warning("[AVISO] Gerenciador AdsPower não inicializado.")
                 logging.warning("Gerenciador AdsPower não inicializado")
         except Exception as e:
-            st.error(f"❌ Erro ao conectar à API AdsPower: {str(e)}")
+            st.error(f"[ERRO] Erro ao conectar à API AdsPower: {str(e)}")
             logging.error(f"Erro ao conectar à API AdsPower: {str(e)}")
     else:
         st.warning(
-            "⚠️ API AdsPower não configurada. Adicione a chave 'PA_API_KEY'.")
+            "[AVISO] API AdsPower não configurada. Adicione a chave 'PA_API_KEY'.")
         logging.warning("API AdsPower não configurada")
 
 # **ABA 2 - AUTOMAÇÃO GMAIL**
-elif st.session_state.current_page == "📩 Automação Gmail":
+elif st.session_state.current_page == " Automação Gmail":
     # Verificar se é necessário recarregar as configurações das APIs
     api_config = refresh_api_configurations()
     sms_api = api_config["sms_api"]
@@ -446,7 +444,7 @@ elif st.session_state.current_page == "📩 Automação Gmail":
     HEADERS = api_config["pa_headers"]
     adspower_manager = api_config["adspower_manager"]
 
-    st.title("📩 Automação no Gmail - Criar Conta")
+    st.title(" Automação no Gmail - Criar Conta")
     logging.info("Acessando aba de Automação Gmail")
 
     # Listar perfis disponíveis no AdsPower
@@ -456,10 +454,10 @@ elif st.session_state.current_page == "📩 Automação Gmail":
     # Botão para recarregar perfis
     col1, col2 = st.columns([3, 1])
     with col1:
-        if st.button("🔄 Recarregar Perfis"):
+        if st.button("[ATUALIZANDO] Recarregar Perfis"):
             logging.info("Recarregando perfis manualmente")
             profile_options = reload_profiles()
-            st.success("✅ Perfis recarregados com sucesso!")
+            st.success("[OK] Perfis recarregados com sucesso!")
 
     try:
         if adspower_manager:
@@ -475,7 +473,7 @@ elif st.session_state.current_page == "📩 Automação Gmail":
             else:
                 profile_options = {}
         else:
-            st.warning("⚠️ Gerenciador AdsPower não inicializado.")
+            st.warning("[AVISO] Gerenciador AdsPower não inicializado.")
             logging.warning("Gerenciador AdsPower não inicializado")
 
     except Exception as e:
@@ -497,28 +495,28 @@ elif st.session_state.current_page == "📩 Automação Gmail":
         logging.info(
             f"Perfil selecionado: {selected_profile} (ID: {profile_id})")
     else:
-        st.warning("⚠️ Nenhum perfil disponível para seleção.")
+        st.warning("[AVISO] Nenhum perfil disponível para seleção.")
 
     # UI para criação de contas
     if profile_options:
         # Configurações do navegador
-        st.subheader("⚙️ Configurações do Navegador")
+        st.subheader(" Configurações do Navegador")
         browser_col1, browser_col2 = st.columns(2)
 
         with browser_col1:
-            headless_mode = st.checkbox("🕶️ Modo Headless (navegador invisível)",
+            headless_mode = st.checkbox(" Modo Headless (navegador invisível)",
                                         help="Execute o navegador em segundo plano, sem interface gráfica")
 
-            browser_wait_time = st.number_input("⏱️ Tempo máximo de espera (segundos)",
+            browser_wait_time = st.number_input("[TEMPO] Tempo máximo de espera (segundos)",
                                                 min_value=10,
                                                 max_value=120,
-                                                value=30)
+                                                value=60)
 
         with browser_col2:
             st.write("")
 
         # Botão para iniciar a automação do Gmail
-        if st.button("🚀 Criar Conta Gmail"):
+        if st.button("[INICIO] Criar Conta Gmail"):
             try:
                 profile_id = profile_options[selected_profile]
                 logging.info(
@@ -546,7 +544,7 @@ elif st.session_state.current_page == "📩 Automação Gmail":
                 )
 
                 # Iniciar processo de criação
-                with st.spinner("🔄 Criando conta Gmail..."):
+                with st.spinner("[ATUALIZANDO] Criando conta Gmail..."):
                     success, account_data = gmail_creator.create_account(
                         user_id=profile_id
                     )
@@ -571,16 +569,16 @@ elif st.session_state.current_page == "📩 Automação Gmail":
                         with open(CREDENTIALS_PATH, "w") as file:
                             json.dump(accounts, file, indent=4)
 
-                        st.success("✅ Conta Gmail criada com sucesso!")
+                        st.success("[OK] Conta Gmail criada com sucesso!")
                         st.json(account_data)
                         logging.info(
                             f"Conta criada com sucesso: {account_data['email']}")
                     else:
-                        st.error("❌ Falha ao criar conta Gmail")
+                        st.error("[ERRO] Falha ao criar conta Gmail")
                         logging.error("Falha ao criar conta Gmail")
 
             except Exception as e:
-                st.error(f"❌ Erro durante a criação da conta: {str(e)}")
+                st.error(f"[ERRO] Erro durante a criação da conta: {str(e)}")
                 logging.error(f"Erro durante a criação da conta: {str(e)}")
 
             finally:
@@ -592,8 +590,8 @@ elif st.session_state.current_page == "📩 Automação Gmail":
                     logging.error(f"Erro ao fechar o browser: {str(e)}")
 
 # **ABA 3 - CONTAS CRIADAS**
-elif st.session_state.current_page == "📜 Contas Criadas":
-    st.title("📜 Contas Criadas")
+elif st.session_state.current_page == " Contas Criadas":
+    st.title(" Contas Criadas")
     logging.info("Acessando aba de Contas Criadas")
 
     # Carregar a lista de contas
@@ -606,7 +604,7 @@ elif st.session_state.current_page == "📜 Contas Criadas":
                     f"Carregadas {len(credentials_list)} contas do arquivo")
             except json.JSONDecodeError:
                 st.error(
-                    "❌ Erro ao carregar o arquivo de contas. O formato JSON pode estar corrompido.")
+                    "[ERRO] Erro ao carregar o arquivo de contas. O formato JSON pode estar corrompido.")
                 logging.error(
                     "Erro ao carregar o arquivo de contas - JSON inválido")
 
@@ -616,7 +614,7 @@ elif st.session_state.current_page == "📜 Contas Criadas":
         with col1:
             st.info(f"Total de contas: {len(credentials_list)}")
         with col2:
-            if st.button("🗑️ Limpar Todas", help="Apagar todas as contas"):
+            if st.button(" Limpar Todas", help="Apagar todas as contas"):
                 if st.checkbox("Confirmar exclusão de todas as contas", key="confirm_clear"):
                     if clear_all_accounts():
                         st.success(
@@ -631,7 +629,7 @@ elif st.session_state.current_page == "📜 Contas Criadas":
 
         # Adicionar campo de busca
         search_term = st.text_input(
-            "🔍 Buscar conta", placeholder="Digite email, telefone ou data")
+            "[BUSCA] Buscar conta", placeholder="Digite email, telefone ou data")
 
         # Mostrar contas da mais recente para a mais antiga
         reversed_list = list(reversed(credentials_list))
@@ -670,7 +668,7 @@ elif st.session_state.current_page == "📜 Contas Criadas":
             with col1:
                 expander = st.expander(f"{email} - {creation_date}")
             with col2:
-                if st.button("🗑️", key=f"delete_{account_id}", help="Apagar esta conta"):
+                if st.button("", key=f"delete_{account_id}", help="Apagar esta conta"):
                     success, message = delete_account(original_idx)
                     if success:
                         st.success(f"Conta {message} removida com sucesso!")
@@ -700,35 +698,35 @@ elif st.session_state.current_page == "📜 Contas Criadas":
                 # Adicionar botões para copiar email/senha com chaves únicas baseadas no índice
                 col1, col2 = st.columns(2)
                 with col1:
-                    if st.button(f"📋 Copiar Email", key=f"copy_email_{account_id}"):
+                    if st.button(f"[CLIPBOARD] Copiar Email", key=f"copy_email_{account_id}"):
                         st.code(email, language=None)
                         st.info("Email copiado para a área de transferência")
                         logging.info(
                             f"Email {email} copiado para a área de transferência")
                 with col2:
-                    if st.button(f"📋 Copiar Senha", key=f"copy_senha_{account_id}"):
+                    if st.button(f"[CLIPBOARD] Copiar Senha", key=f"copy_senha_{account_id}"):
                         st.code(cred.get('password', ''), language=None)
                         st.info("Senha copiada para a área de transferência")
                         logging.info(
                             f"Senha para {email} copiada para a área de transferência")
     else:
-        st.warning("⚠️ Nenhuma conta de Gmail encontrada.")
+        st.warning("[AVISO] Nenhuma conta de Gmail encontrada.")
         logging.warning("Nenhuma conta de Gmail encontrada")
 
 # **ABA 4 - GERENCIAR NÚMEROS**
-elif st.session_state.current_page == "📱 Gerenciar Números":
-    st.title("📱 Gerenciamento de Números de Telefone")
+elif st.session_state.current_page == "[TELEFONE] Gerenciar Números":
+    st.title("[TELEFONE] Gerenciamento de Números de Telefone")
     logging.info("Acessando aba de Gerenciamento de Números")
 
     # Carregar todos os números disponíveis
     números = phone_manager._load_numbers()
 
     if not números:
-        st.warning("⚠️ Nenhum número de telefone disponível para gerenciamento.")
+        st.warning("[AVISO] Nenhum número de telefone disponível para gerenciamento.")
         logging.info("Nenhum número de telefone disponível para gerenciamento")
     else:
         # Mostrar estatísticas básicas
-        st.subheader("📋 Estatísticas de Números")
+        st.subheader("[CLIPBOARD] Estatísticas de Números")
         stats = phone_manager.get_stats()
         logging.info(f"Estatísticas de números: {stats}")
 
@@ -741,11 +739,11 @@ elif st.session_state.current_page == "📱 Gerenciar Números":
             st.metric("Economia Estimada", stats["estimated_savings"])
 
         # Listar todos os números com detalhes
-        st.subheader("📋 Lista de Números")
+        st.subheader("[CLIPBOARD] Lista de Números")
 
         # Adicionar busca
         search_number = st.text_input(
-            "🔍 Filtrar por número", placeholder="Digite parte do número...")
+            "[BUSCA] Filtrar por número", placeholder="Digite parte do número...")
 
         # Filtrar números
         filtered_numbers = números
@@ -783,7 +781,7 @@ elif st.session_state.current_page == "📱 Gerenciar Números":
             status_color = "green" if is_active else "gray"
             status_text = "Ativo" if is_active else "Expirado"
 
-            with st.expander(f"☎️ {phone} - {status_text} {'(' + time_left + ')' if time_left else ''}"):
+            with st.expander(f" {phone} - {status_text} {'(' + time_left + ')' if time_left else ''}"):
                 st.markdown(f"""
                 | Detalhes do Número | |
                 |----------------|--------------|
@@ -799,70 +797,70 @@ elif st.session_state.current_page == "📱 Gerenciar Números":
                 """, unsafe_allow_html=True)
 
                 # Adicionar botão para remover número
-                if st.button("🗑️ Remover Número", key=f"remove_number_{i}"):
+                if st.button(" Remover Número", key=f"remove_number_{i}"):
                     try:
                         # Implementar lógica para remover o número
                         if phone_manager.remove_number(phone):
                             st.success(
-                                f"✅ Número {phone} removido com sucesso!")
+                                f"[OK] Número {phone} removido com sucesso!")
                             logging.info(
                                 f"Número {phone} removido com sucesso")
                             time.sleep(1)
                             st.rerun()
                         else:
                             st.error(
-                                f"❌ Erro ao remover número: {phone} não encontrado.")
+                                f"[ERRO] Erro ao remover número: {phone} não encontrado.")
                     except Exception as e:
-                        st.error(f"❌ Erro ao remover número: {str(e)}")
+                        st.error(f"[ERRO] Erro ao remover número: {str(e)}")
                         logging.error(
                             f"Erro ao remover número {phone}: {str(e)}")
 
                 # Adicionar botão para cancelar número
-                if st.button("🗑️ Cancelar Número", key=f"cancel_number_{i}"):
+                if st.button(" Cancelar Número", key=f"cancel_number_{i}"):
                     # Supondo que você tenha o ID do número
                     if phone_manager.cancel_number(número["id"]):
                         st.success(
-                            f"✅ Número {número['phone_number']} cancelado com sucesso!")
+                            f"[OK] Número {número['phone_number']} cancelado com sucesso!")
                     else:
                         st.error(
-                            f"❌ Erro ao cancelar o número {número['phone_number']}.")
+                            f"[ERRO] Erro ao cancelar o número {número['phone_number']}.")
 
 # **ABA 5 - CONSULTA DE PREÇOS**
-elif st.session_state.current_page == "💰 Consulta de Preços":
-    st.title("💰 Consulta de Preços da API SMS")
+elif st.session_state.current_page == " Consulta de Preços":
+    st.title(" Consulta de Preços da API SMS")
     logging.info("Acessando aba de Consulta de Preços")
 
     # Importar as funções do arquivo price.py
     try:
         from apis.price import teste_precos_multi_servico, teste_operadoras_brasil, teste_preco_maximo
     except ImportError as e:
-        st.error(f"❌ Erro ao importar módulo de preços: {str(e)}")
+        st.error(f"[ERRO] Erro ao importar módulo de preços: {str(e)}")
         logging.error(f"Erro ao importar módulo de preços: {str(e)}")
 
     # Mostrar saldo atual
     try:
         saldo = sms_api.get_balance()
         if saldo is not None:
-            st.success(f"💰 Saldo atual: {saldo:.2f} RUB")
+            st.success(f" Saldo atual: {saldo:.2f} RUB")
         else:
-            st.warning("⚠️ Não foi possível obter o saldo da API SMS")
+            st.warning("[AVISO] Não foi possível obter o saldo da API SMS")
     except Exception as e:
-        st.error(f"❌ Erro ao obter saldo: {str(e)}")
+        st.error(f"[ERRO] Erro ao obter saldo: {str(e)}")
 
     # Criar um layout com três seções (uma para cada tipo de consulta)
     st.info("Esta ferramenta realiza consultas de preços sem efetuar compras de números")
 
     # Tabs para organizar os diferentes tipos de consulta
     tab1, tab2, tab3 = st.tabs(
-        ["📊 Multi-serviço", "📡 Operadoras Brasil", "💲 Preço Máximo"])
+        ["[GRAFICO] Multi-serviço", " Operadoras Brasil", " Preço Máximo"])
 
     with tab1:
-        st.subheader("📊 Consulta de Preços Multi-serviço")
+        st.subheader("[GRAFICO] Consulta de Preços Multi-serviço")
         st.write(
             "Esta consulta verifica os preços para diferentes combinações de serviços")
 
         # Botão para iniciar a consulta de preços multi-serviço
-        if st.button("🔍 Consultar Preços Multi-serviço"):
+        if st.button("[BUSCA] Consultar Preços Multi-serviço"):
             with st.spinner("Consultando preços para múltiplos serviços..."):
                 try:
                     resultados = teste_precos_multi_servico()
@@ -890,21 +888,21 @@ elif st.session_state.current_page == "💰 Consulta de Preços":
 
                         # Mostrar caminho do arquivo salvo
                         st.success(
-                            "✅ Resultados completos salvos em 'resultados_testes/precos_multi_servico.json'")
+                            "[OK] Resultados completos salvos em 'resultados_testes/precos_multi_servico.json'")
                     else:
-                        st.warning("⚠️ Nenhum resultado obtido")
+                        st.warning("[AVISO] Nenhum resultado obtido")
 
                 except Exception as e:
-                    st.error(f"❌ Erro durante a consulta: {str(e)}")
+                    st.error(f"[ERRO] Erro durante a consulta: {str(e)}")
                     logging.error(
                         f"Erro durante a consulta de preços multi-serviço: {str(e)}")
 
     with tab2:
-        st.subheader("📡 Consulta de Operadoras Brasil")
+        st.subheader(" Consulta de Operadoras Brasil")
         st.write("Esta consulta simula verificações por operadoras no Brasil")
 
         # Botão para iniciar a consulta de operadoras
-        if st.button("🔍 Consultar Operadoras Brasil"):
+        if st.button("[BUSCA] Consultar Operadoras Brasil"):
             with st.spinner("Consultando disponibilidade por operadoras..."):
                 try:
                     resultados = teste_operadoras_brasil()
@@ -928,24 +926,24 @@ elif st.session_state.current_page == "💰 Consulta de Preços":
                         # Informações de operadoras (simulado)
                         st.write("Simulação por Operadoras:")
                         for operadora, info in dados["operadoras"].items():
-                            status = "✅ Disponível" if info["disponivel"] else "❌ Indisponível"
+                            status = "[OK] Disponível" if info["disponivel"] else "[ERRO] Indisponível"
                             st.info(f"**{operadora.upper()}**: {status}")
 
                     # Mostrar caminho do arquivo salvo
                     st.success(
-                        "✅ Resultados completos salvos em 'resultados_testes/operadoras_brasil.json'")
+                        "[OK] Resultados completos salvos em 'resultados_testes/operadoras_brasil.json'")
 
                 except Exception as e:
-                    st.error(f"❌ Erro durante a consulta: {str(e)}")
+                    st.error(f"[ERRO] Erro durante a consulta: {str(e)}")
                     logging.error(
                         f"Erro durante a consulta de operadoras Brasil: {str(e)}")
 
     with tab3:
-        st.subheader("💲 Análise de Preço Máximo")
+        st.subheader(" Análise de Preço Máximo")
         st.write("Esta consulta analisa diferentes faixas de preço máximo")
 
         # Botão para iniciar a consulta de preço máximo
-        if st.button("🔍 Analisar Preços Máximos"):
+        if st.button("[BUSCA] Analisar Preços Máximos"):
             with st.spinner("Analisando faixas de preço máximo..."):
                 try:
                     resultados = teste_preco_maximo()
@@ -974,7 +972,7 @@ elif st.session_state.current_page == "💰 Consulta de Preços":
                         for preco, info in resultados["analise_faixas"].items():
                             faixas_data.append({
                                 "Preço Máximo (RUB)": preco,
-                                "Disponibilidade": "✅ Possível" if info["seria_possivel"] else "❌ Improvável",
+                                "Disponibilidade": "[OK] Possível" if info["seria_possivel"] else "[ERRO] Improvável",
                                 "Observação": info["nota"]
                             })
 
@@ -985,14 +983,14 @@ elif st.session_state.current_page == "💰 Consulta de Preços":
                     if "recomendacao_geral" in resultados:
                         rec = resultados["recomendacao_geral"]
                         st.success(
-                            f"✅ Preço recomendado: **{rec['preco_recomendado']:.2f} RUB**")
+                            f"[OK] Preço recomendado: **{rec['preco_recomendado']:.2f} RUB**")
                         st.info(rec["explicacao"])
 
                     # Mostrar caminho do arquivo salvo
                     st.success(
-                        "✅ Resultados completos salvos em 'resultados_testes/preco_maximo.json'")
+                        "[OK] Resultados completos salvos em 'resultados_testes/preco_maximo.json'")
 
                 except Exception as e:
-                    st.error(f"❌ Erro durante a consulta: {str(e)}")
+                    st.error(f"[ERRO] Erro durante a consulta: {str(e)}")
                     logging.error(
                         f"Erro durante a análise de preços máximos: {str(e)}")

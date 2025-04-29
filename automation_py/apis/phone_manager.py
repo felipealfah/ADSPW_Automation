@@ -73,7 +73,7 @@ class PhoneManager:
         Adiciona ou atualiza um número no gerenciador.
         """
         if not all([phone_number, country_code, activation_id]):
-            logger.error("❌ Dados de telefone incompletos, não será salvo")
+            logger.error("[ERRO] Dados de telefone incompletos, não será salvo")
             return False
 
         current_time = time.time()
@@ -88,7 +88,7 @@ class PhoneManager:
                     number["services"].append(service)
                 self._save_numbers()
                 logger.info(
-                    f"✅ Número {phone_number} atualizado no gerenciador")
+                    f"[OK] Número {phone_number} atualizado no gerenciador")
                 return True
 
         # Adicionar novo número
@@ -104,7 +104,7 @@ class PhoneManager:
 
         self.numbers.append(new_number)
         self._save_numbers()
-        logger.info(f"✅ Número {phone_number} adicionado ao gerenciador")
+        logger.info(f"[OK] Número {phone_number} adicionado ao gerenciador")
         return True
 
     def get_reusable_number(self, service="go"):
@@ -149,7 +149,7 @@ class PhoneManager:
             minutes_left = int(time_left / 60)
 
             logger.info(
-                f"♻️ Reutilizando número {selected['phone_number']} ({minutes_left} minutos restantes)")
+                f" Reutilizando número {selected['phone_number']} ({minutes_left} minutos restantes)")
             return selected
 
         return None
@@ -299,20 +299,20 @@ class PhoneManager:
             except Exception as e:
                 last_error = e
                 logger.warning(
-                    f"⚠️ Tentativa {attempt+1}/{max_retries} falhou: {str(e)}")
+                    f"[AVISO] Tentativa {attempt+1}/{max_retries} falhou: {str(e)}")
 
                 # Somente faz o log e aguarda se não for a última tentativa
                 if attempt < max_retries - 1:
                     logger.info(
-                        f"🔄 Aguardando {retry_delay}s antes da próxima tentativa...")
+                        f"[ATUALIZANDO] Aguardando {retry_delay}s antes da próxima tentativa...")
                     time.sleep(retry_delay)
                 else:
                     logger.error(
-                        f"❌ Falha após {max_retries} tentativas: {str(e)}")
+                        f"[ERRO] Falha após {max_retries} tentativas: {str(e)}")
 
         # Se chegou aqui, todas as tentativas falharam
         logger.error(
-            f"❌ Todas as tentativas falharam: {str(last_error) if last_error else 'Erro desconhecido'}")
+            f"[ERRO] Todas as tentativas falharam: {str(last_error) if last_error else 'Erro desconhecido'}")
         return False
 
     def get_number_status(self, country, service):
@@ -333,14 +333,14 @@ class PhoneManager:
             # Validar o retorno
             if not isinstance(status, int) and status is not None:
                 logger.warning(
-                    f"⚠️ Formato inválido de status: {type(status)}")
+                    f"[AVISO] Formato inválido de status: {type(status)}")
                 return 0
 
             return status if status is not None else 0
 
         except Exception as e:
             logger.error(
-                f"❌ Erro ao verificar disponibilidade de números: {str(e)}")
+                f"[ERRO] Erro ao verificar disponibilidade de números: {str(e)}")
             return 0
 
     def check_google_numbers_availability(self):
@@ -353,11 +353,11 @@ class PhoneManager:
         """
         service = "go"  # Serviço Gmail
         logger.info(
-            f"⏳ Verificando disponibilidade de números para Gmail em todos os países...")
+            f" Verificando disponibilidade de números para Gmail em todos os países...")
 
         # Verificar saldo
         balance = self.sms_api.get_balance()
-        logger.info(f"💰 Saldo disponível: {balance} RUB")
+        logger.info(f" Saldo disponível: {balance} RUB")
 
         # Solicitar preços e disponibilidade à API
         countries_data = self.sms_api.compare_prices_in_selected_countries(
@@ -365,7 +365,7 @@ class PhoneManager:
 
         if not countries_data:
             logger.error(
-                "❌ Não foi possível obter dados de países para o serviço Gmail")
+                "[ERRO] Não foi possível obter dados de países para o serviço Gmail")
             return {}
 
         # Organizar por ordem de prioridade e disponibilidade
@@ -384,12 +384,12 @@ class PhoneManager:
                 priority_data.append(country_info)
 
                 logger.info(
-                    f"✅ {country_info['country_name']} (Prioridade {position}): {country_info['available']} números disponíveis, {country_info['price']} RUB")
+                    f"[OK] {country_info['country_name']} (Prioridade {position}): {country_info['available']} números disponíveis, {country_info['price']} RUB")
             elif country_code in self.selected_countries:
                 # País sem números disponíveis
                 country_name = self.selected_countries[country_code]
                 logger.warning(
-                    f"⚠️ {country_name} (Prioridade {self.country_priority.index(country_code) + 1}): Sem números disponíveis")
+                    f"[AVISO] {country_name} (Prioridade {self.country_priority.index(country_code) + 1}): Sem números disponíveis")
 
         # Resumo
         total_available = sum(item.get("available", 0)
@@ -397,17 +397,17 @@ class PhoneManager:
 
         if total_available > 0:
             logger.info(
-                f"✅ Total de {total_available} números disponíveis em {len(priority_data)} países")
+                f"[OK] Total de {total_available} números disponíveis em {len(priority_data)} países")
 
             # Recomendar país baseado na prioridade e disponibilidade
             recommended = priority_data[0] if priority_data else None
             if recommended:
                 logger.info(
-                    f"🔍 País recomendado: {recommended['country_name']} (código {recommended['country_code']})")
+                    f"[BUSCA] País recomendado: {recommended['country_name']} (código {recommended['country_code']})")
                 logger.info(
                     f"   - {recommended['available']} números disponíveis a {recommended['price']} RUB cada")
         else:
-            logger.error("❌ Nenhum número disponível para Gmail")
+            logger.error("[ERRO] Nenhum número disponível para Gmail")
 
         return {
             "available_countries": priority_data,
@@ -429,7 +429,7 @@ class PhoneManager:
             dict: Informações do número comprado ou None se falhou
         """
         if not self.sms_api:
-            logger.error("❌ API SMS não inicializada")
+            logger.error("[ERRO] API SMS não inicializada")
             return None
 
         # Se country não for especificado, tenta Brasil primeiro e depois outros países em ordem de prioridade
@@ -444,7 +444,7 @@ class PhoneManager:
 
             country_name = self.selected_countries[country_code]
             logger.info(
-                f"🔍 Tentando comprar número multi-serviço em: {country_name} ({country_code})")
+                f"[BUSCA] Tentando comprar número multi-serviço em: {country_name} ({country_code})")
 
             try:
                 activation_id, phone_number = self.sms_api.buy_number_multi_service(
@@ -452,7 +452,7 @@ class PhoneManager:
 
                 if activation_id and phone_number:
                     logger.info(
-                        f"✅ Número multi-serviço obtido: {phone_number} (País: {country_name})")
+                        f"[OK] Número multi-serviço obtido: {phone_number} (País: {country_name})")
 
                     # Salvar o número no gerenciador
                     number_data = {
@@ -473,11 +473,11 @@ class PhoneManager:
 
             except Exception as e:
                 logger.error(
-                    f"❌ Erro ao comprar número em {country_name}: {str(e)}")
+                    f"[ERRO] Erro ao comprar número em {country_name}: {str(e)}")
                 continue
 
         logger.error(
-            "❌ Não foi possível comprar número para os serviços especificados em nenhum país")
+            "[ERRO] Não foi possível comprar número para os serviços especificados em nenhum país")
         return None
 
     def buy_multi_service_with_webhook(self, services, webhook_url, country=None):
@@ -493,7 +493,7 @@ class PhoneManager:
             dict: Informações do número comprado ou None se falhou
         """
         if not self.sms_api:
-            logger.error("❌ API SMS não inicializada")
+            logger.error("[ERRO] API SMS não inicializada")
             return None
 
         # Se country não for especificado, tenta Brasil primeiro e depois outros países em ordem de prioridade
@@ -508,7 +508,7 @@ class PhoneManager:
 
             country_name = self.selected_countries[country_code]
             logger.info(
-                f"🔍 Tentando comprar número multi-serviço com webhook em: {country_name} ({country_code})")
+                f"[BUSCA] Tentando comprar número multi-serviço com webhook em: {country_name} ({country_code})")
 
             try:
                 activation_id, phone_number = self.sms_api.buy_multi_service_with_webhook(
@@ -516,7 +516,7 @@ class PhoneManager:
 
                 if activation_id and phone_number:
                     logger.info(
-                        f"✅ Número multi-serviço com webhook obtido: {phone_number} (País: {country_name})")
+                        f"[OK] Número multi-serviço com webhook obtido: {phone_number} (País: {country_name})")
 
                     # Salvar o número no gerenciador
                     number_data = {
@@ -538,11 +538,11 @@ class PhoneManager:
 
             except Exception as e:
                 logger.error(
-                    f"❌ Erro ao comprar número com webhook em {country_name}: {str(e)}")
+                    f"[ERRO] Erro ao comprar número com webhook em {country_name}: {str(e)}")
                 continue
 
         logger.error(
-            "❌ Não foi possível comprar número com webhook para os serviços especificados em nenhum país")
+            "[ERRO] Não foi possível comprar número com webhook para os serviços especificados em nenhum país")
         return None
 
     def buy_multi_service_number_br(self, services, operator=None, max_price=None):
@@ -559,7 +559,7 @@ class PhoneManager:
             dict: Informações do número comprado ou None se falhou
         """
         if not self.sms_api:
-            logger.error("❌ API SMS não inicializada")
+            logger.error("[ERRO] API SMS não inicializada")
             return None
 
         # Código do Brasil
@@ -574,11 +574,11 @@ class PhoneManager:
 
         # Verificar disponibilidade e preços para operadoras brasileiras
         logger.info(
-            f"🔍 Verificando disponibilidade de números para serviços {services} no Brasil")
+            f"[BUSCA] Verificando disponibilidade de números para serviços {services} no Brasil")
 
         for op in operators_to_try:
             try:
-                logger.info(f"📱 Tentando operadora: {op.upper()}")
+                logger.info(f"[TELEFONE] Tentando operadora: {op.upper()}")
 
                 # Tentar comprar o número com esta operadora
                 activation_id, phone_number = self.sms_api.buy_number_multi_service(
@@ -590,7 +590,7 @@ class PhoneManager:
 
                 if activation_id and phone_number:
                     logger.info(
-                        f"✅ Número multi-serviço obtido: {phone_number} (Operadora: {op.upper()})")
+                        f"[OK] Número multi-serviço obtido: {phone_number} (Operadora: {op.upper()})")
 
                     # Salvar o número no gerenciador
                     number_data = {
@@ -612,12 +612,12 @@ class PhoneManager:
 
             except Exception as e:
                 logger.error(
-                    f"❌ Erro ao comprar número com operadora {op}: {str(e)}")
+                    f"[ERRO] Erro ao comprar número com operadora {op}: {str(e)}")
                 continue
 
         # Se não conseguiu com nenhuma operadora específica, tentar sem especificar operadora
         if operator is not None:  # Se já tentamos sem operadora, não tente novamente
-            logger.info("📱 Tentando sem especificar operadora...")
+            logger.info("[TELEFONE] Tentando sem especificar operadora...")
             try:
                 activation_id, phone_number = self.sms_api.buy_number_multi_service(
                     services,
@@ -627,7 +627,7 @@ class PhoneManager:
 
                 if activation_id and phone_number:
                     logger.info(
-                        f"✅ Número multi-serviço obtido: {phone_number} (Operadora: não especificada)")
+                        f"[OK] Número multi-serviço obtido: {phone_number} (Operadora: não especificada)")
 
                     # Salvar o número no gerenciador
                     number_data = {
@@ -647,10 +647,10 @@ class PhoneManager:
                     return number_data
             except Exception as e:
                 logger.error(
-                    f"❌ Erro ao comprar número sem operadora específica: {str(e)}")
+                    f"[ERRO] Erro ao comprar número sem operadora específica: {str(e)}")
 
         logger.error(
-            "❌ Não foi possível comprar número brasileiro para os serviços especificados")
+            "[ERRO] Não foi possível comprar número brasileiro para os serviços especificados")
         return None
 
     def check_multi_service_availability_br(self, services):
@@ -716,7 +716,7 @@ class PhoneManager:
 
             except Exception as e:
                 logger.error(
-                    f"❌ Erro ao verificar disponibilidade para operadora {op}: {str(e)}")
+                    f"[ERRO] Erro ao verificar disponibilidade para operadora {op}: {str(e)}")
                 result["operators"][op] = {
                     "available": False,
                     "error": str(e)

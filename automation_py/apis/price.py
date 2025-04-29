@@ -21,11 +21,11 @@ def salvar_resultado(nome_teste, resultado):
     caminho = f"resultados_testes/{nome_teste}.json"
     with open(caminho, "w", encoding="utf-8") as f:
         json.dump(resultado, f, indent=2, ensure_ascii=False)
-    logger.info(f"✅ Resultado salvo em {caminho}")
+    logger.info(f"[OK] Resultado salvo em {caminho}")
 
 def teste_precos_multi_servico():
     """Testa preços para múltiplos serviços sem comprar número"""
-    logger.info("🔍 TESTE 1: Consultando preços para serviços múltiplos")
+    logger.info("[BUSCA] TESTE 1: Consultando preços para serviços múltiplos")
     
     sms_api = SMSAPI()
     
@@ -47,7 +47,7 @@ def teste_precos_multi_servico():
     # Testar cada combinação de serviços
     for servicos in combinacoes_servicos:
         servicos_str = "+".join(servicos)
-        logger.info(f"\n📱 Testando combinação: {servicos_str}")
+        logger.info(f"\n[TELEFONE] Testando combinação: {servicos_str}")
         
         # Obter preços para cada serviço individualmente para comparação
         precos_individuais = {}
@@ -68,12 +68,12 @@ def teste_precos_multi_servico():
     
     # Salvar resultados
     salvar_resultado("precos_multi_servico", resultados)
-    logger.info("✅ Teste de preços multi-serviço concluído")
+    logger.info("[OK] Teste de preços multi-serviço concluído")
     return resultados
 
 def teste_operadoras_brasil():
     """Simula verificação de disponibilidade por operadoras no Brasil"""
-    logger.info("\n🔍 TESTE 2: Simulando verificação de operadoras no Brasil")
+    logger.info("\n[BUSCA] TESTE 2: Simulando verificação de operadoras no Brasil")
     
     phone_manager = PhoneManager()
     
@@ -91,7 +91,7 @@ def teste_operadoras_brasil():
     
     for servicos in combinacoes:
         servicos_str = "+".join(servicos)
-        logger.info(f"\n📱 Testando combinação de serviços: {servicos_str}")
+        logger.info(f"\n[TELEFONE] Testando combinação de serviços: {servicos_str}")
         
         # Verificar disponibilidade geral no Brasil
         disponibilidade_geral = {}
@@ -103,7 +103,7 @@ def teste_operadoras_brasil():
         # Simular verificação por operadora (como a API não suporta, apenas emulamos)
         info_operadoras = {}
         for operadora in operadoras:
-            logger.info(f"  📡 Operadora {operadora.upper()}: Simulando verificação")
+            logger.info(f"   Operadora {operadora.upper()}: Simulando verificação")
             # Aqui poderia fazer uma chamada real se a API permitisse
             info_operadoras[operadora] = {
                 "disponivel": disponibilidade_geral.get(servicos[0], 0) > 0,
@@ -118,12 +118,12 @@ def teste_operadoras_brasil():
     
     # Salvar resultados
     salvar_resultado("operadoras_brasil", resultados)
-    logger.info("✅ Teste de operadoras concluído")
+    logger.info("[OK] Teste de operadoras concluído")
     return resultados
 
 def teste_preco_maximo():
     """Testa diferentes faixas de preço máximo para avaliar disponibilidade"""
-    logger.info("\n🔍 TESTE 3: Avaliando diferentes faixas de preço máximo")
+    logger.info("\n[BUSCA] TESTE 3: Avaliando diferentes faixas de preço máximo")
     
     sms_api = SMSAPI()
     
@@ -154,7 +154,7 @@ def teste_preco_maximo():
     # Analisar diferentes faixas de preço
     analise_faixas = {}
     for preco_max in faixas_preco:
-        logger.info(f"  💰 Avaliando preço máximo: {preco_max} RUB")
+        logger.info(f"   Avaliando preço máximo: {preco_max} RUB")
         # Aqui faríamos uma verificação real se a API permitisse consulta por preço máximo
         # Como não podemos sem comprar, apenas simulamos a lógica
         
@@ -174,11 +174,11 @@ def teste_preco_maximo():
     
     # Salvar resultados
     salvar_resultado("preco_maximo", resultados)
-    logger.info("✅ Teste de preço máximo concluído")
+    logger.info("[OK] Teste de preço máximo concluído")
     return resultados
 
 def main():
-    logger.info("🚀 Iniciando testes da API SMS-Activate (apenas consultas, sem compras)")
+    logger.info("[INICIO] Iniciando testes da API SMS-Activate (apenas consultas, sem compras)")
     
     try:
         # Executar todos os testes
@@ -186,11 +186,11 @@ def main():
         teste_operadoras_brasil()
         teste_preco_maximo()
         
-        logger.info("\n✅ Todos os testes foram concluídos com sucesso!")
-        logger.info("📊 Os resultados foram salvos na pasta 'resultados_testes'")
+        logger.info("\n[OK] Todos os testes foram concluídos com sucesso!")
+        logger.info("[GRAFICO] Os resultados foram salvos na pasta 'resultados_testes'")
         
     except Exception as e:
-        logger.error(f"❌ Erro durante os testes: {str(e)}")
+        logger.error(f"[ERRO] Erro durante os testes: {str(e)}")
         import traceback
         traceback.print_exc()
         return 1

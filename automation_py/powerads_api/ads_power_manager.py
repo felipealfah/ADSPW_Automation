@@ -81,39 +81,57 @@ class AdsPowerManager:
         """Testa múltiplos endereços para encontrar o melhor para conectar ao AdsPower."""
         possible_urls = [
             "http://local.adspower.net:50325",
-            "http://host.docker.internal:50325",
-            "http://gateway.docker.internal:50325",
             "http://localhost:50325",
             "http://127.0.0.1:50325"
         ]
 
+        # Adiciona endereço IP do host se disponível (via variável de ambiente)
+        if os.environ.get('HOST_IP'):
+            possible_urls.insert(
+                0, f"http://{os.environ.get('HOST_IP')}:50325")
+
         logger.info("Testando múltiplos endereços para conectar ao AdsPower...")
+
+        # Tentativa com retries
+        max_retries = 3  # Número máximo de tentativas para cada URL
+
         for url in possible_urls:
-            try:
-                logger.info(f"Testando conexão com: {url}")
-                response = requests.get(f"{url}/status", timeout=2)
-                if response.status_code == 200:
-                    self.base_url = url
-                    logger.info(f"✅ Conexão bem-sucedida com: {url}")
-                    return
-            except Exception as e:
-                logger.warning(f"❌ Falha ao conectar em {url}: {str(e)}")
+            for attempt in range(max_retries):
+                try:
+                    logger.info(
+                        f"Testando conexão com: {url} (tentativa {attempt+1}/{max_retries})")
+                    response = requests.get(f"{url}/status", timeout=10)
+                    if response.status_code == 200:
+                        self.base_url = url
+                        logger.info(f"[OK] Conexão bem-sucedida com: {url}")
+                        return
+                    else:
+                        logger.warning(
+                            f"Resposta não-200 de {url}: {response.status_code}")
+                        # Se não for a última tentativa, aguarde antes de tentar novamente
+                        if attempt < max_retries - 1:
+                            time.sleep(2)  # Espera 2 segundos entre tentativas
+                except Exception as e:
+                    logger.warning(f"[ERRO] Falha ao conectar em {url}: {str(e)}")
+                    # Se não for a última tentativa, aguarde antes de tentar novamente
+                    if attempt < max_retries - 1:
+                        time.sleep(2)  # Espera 2 segundos entre tentativas
 
         # Se nenhum funcionou, use um padrão
         self.base_url = "http://local.adspower.net:50325"
         logger.warning(
-            f"⚠️ Nenhuma conexão bem-sucedida. Usando padrão: {self.base_url}")
+            f"[AVISO] Nenhuma conexão bem-sucedida após {max_retries} tentativas para cada URL. Usando padrão: {self.base_url}")
 
     def _check_connection(self):
         """Verifica a conexão com o AdsPower."""
         try:
             # Tente uma requisição simples para verificar a conectividade
-            response = requests.get(f"{self.base_url}/status", timeout=5)
+            response = requests.get(f"{self.base_url}/status", timeout=10)
             if response.status_code == 200:
-                logger.info(f"✅ Conectado ao AdsPower em {self.base_url}")
+                logger.info(f"[OK] Conectado ao AdsPower em {self.base_url}")
             else:
                 logger.warning(
-                    f"⚠️ AdsPower respondeu com status {response.status_code}")
+                    f"[AVISO] AdsPower respondeu com status {response.status_code}")
 
                 # Se a conexão falhar, tente outros endereços
                 if not self.base_url.startswith("http://local.adspower.net"):
@@ -123,16 +141,16 @@ class AdsPowerManager:
                         logger.info(
                             f"Tentando conexão alternativa com: {alt_url}")
                         alt_response = requests.get(
-                            f"{alt_url}/status", timeout=3)
+                            f"{alt_url}/status", timeout=10)
                         if alt_response.status_code == 200:
                             self.base_url = alt_url
                             logger.info(
-                                f"✅ Conexão alternativa bem-sucedida com: {alt_url}")
+                                f"[OK] Conexão alternativa bem-sucedida com: {alt_url}")
                     except Exception:
-                        logger.warning("❌ Conexão alternativa também falhou")
+                        logger.warning("[ERRO] Conexão alternativa também falhou")
 
         except Exception as e:
-            logger.error(f"❌ Erro ao conectar ao AdsPower: {str(e)}")
+            logger.error(f"[ERRO] Erro ao conectar ao AdsPower: {str(e)}")
             logger.error(f"   URL tentada: {self.base_url}")
             logger.error(
                 "   Verifique se o AdsPower está instalado e em execução no sistema host.")
@@ -143,13 +161,14 @@ class AdsPowerManager:
                 try:
                     alt_url = "http://local.adspower.net:50325"
                     logger.info(f"Tentando conexão alternativa com: {alt_url}")
-                    alt_response = requests.get(f"{alt_url}/status", timeout=3)
+                    alt_response = requests.get(
+                        f"{alt_url}/status", timeout=10)
                     if alt_response.status_code == 200:
                         self.base_url = alt_url
                         logger.info(
-                            f"✅ Conexão alternativa bem-sucedida com: {alt_url}")
+                            f"[OK] Conexão alternativa bem-sucedida com: {alt_url}")
                 except Exception:
-                    logger.warning("❌ Conexão alternativa também falhou")
+                    logger.warning("[ERRO] Conexão alternativa também falhou")
 
     def _load_cache(self) -> Dict:
         """Carrega o cache local de informações do AdsPower."""
@@ -166,7 +185,7 @@ class AdsPowerManager:
                 }
             }
         except Exception as e:
-            logger.warning(f"⚠️ Erro ao carregar cache do AdsPower: {str(e)}")
+            logger.warning(f"[AVISO] Erro ao carregar cache do AdsPower: {str(e)}")
             return {
                 "profiles": {},
                 "last_updated": 0,
@@ -183,7 +202,7 @@ class AdsPowerManager:
             with open(self.local_cache_path, 'w') as f:
                 json.dump(self.cache, f, indent=4)
         except Exception as e:
-            logger.warning(f"⚠️ Erro ao salvar cache do AdsPower: {str(e)}")
+            logger.warning(f"[AVISO] Erro ao salvar cache do AdsPower: {str(e)}")
 
     def check_api_health(self, force_check=False) -> bool:
         """
@@ -206,7 +225,7 @@ class AdsPowerManager:
             # Realizar verificação simples - listar grupos
             url = f"{self.base_url}/api/v1/group/list"
             response = requests.get(
-                url, headers={"Authorization": f"Bearer {self.api_key}"}, timeout=10)
+                url, headers={"Authorization": f"Bearer {self.api_key}"}, timeout=20)
 
             if response.status_code == 200:
                 data = response.json()
@@ -215,7 +234,7 @@ class AdsPowerManager:
                     self.cache["service_status"]["available"] = True
                     self.cache["service_status"]["last_checked"] = current_time
                     self._save_cache()
-                    logger.info("✅ API do AdsPower está saudável")
+                    logger.info("[OK] API do AdsPower está saudável")
                     return True
 
             # API não está saudável
@@ -223,7 +242,7 @@ class AdsPowerManager:
             self.cache["service_status"]["last_checked"] = current_time
             self._save_cache()
             logger.warning(
-                f"⚠️ API do AdsPower não está respondendo corretamente: {response.status_code}")
+                f"[AVISO] API do AdsPower não está respondendo corretamente: {response.status_code}")
             return False
 
         except Exception as e:
@@ -232,7 +251,7 @@ class AdsPowerManager:
             self.cache["service_status"]["last_checked"] = current_time
             self._save_cache()
             logger.error(
-                f"❌ Erro ao verificar saúde da API do AdsPower: {str(e)}")
+                f"[ERRO] Erro ao verificar saúde da API do AdsPower: {str(e)}")
             return False
 
     def get_all_profiles(self, force_refresh=False) -> List[Dict]:
@@ -262,7 +281,7 @@ class AdsPowerManager:
                     f"{self.base_url}/api/v1/user/list",
                     headers={"Authorization": f"Bearer {self.api_key}"},
                     params={"page": page, "page_size": page_size},
-                    timeout=15
+                    timeout=30
                 )
                 response.raise_for_status()  # Levanta um erro se a resposta não for 200
                 data = response.json()
@@ -284,11 +303,11 @@ class AdsPowerManager:
                     page += 1
                 else:
                     logger.warning(
-                        "⚠️ Nenhum perfil encontrado na resposta da API.")
+                        "[AVISO] Nenhum perfil encontrado na resposta da API.")
                     break
 
             except Exception as e:
-                logger.error(f"❌ Erro ao buscar perfis: {str(e)}")
+                logger.error(f"[ERRO] Erro ao buscar perfis: {str(e)}")
                 break
 
         # Atualizar timestamp do cache
@@ -328,12 +347,12 @@ class AdsPowerManager:
                     self._save_cache()
                     return data["data"]
 
-            logger.warning(f"⚠️ Perfil {user_id} não encontrado na API")
+            logger.warning(f"[AVISO] Perfil {user_id} não encontrado na API")
             return None
 
         except Exception as e:
             logger.error(
-                f"❌ Erro ao buscar informações do perfil {user_id}: {str(e)}")
+                f"[ERRO] Erro ao buscar informações do perfil {user_id}: {str(e)}")
             return None
 
     def is_browser_running(self, user_id: str) -> bool:
@@ -356,7 +375,7 @@ class AdsPowerManager:
                 f"{self.base_url}/api/v1/browser/active",
                 headers={"Authorization": f"Bearer {self.api_key}"},
                 params={"user_id": user_id},
-                timeout=10
+                timeout=20
             )
 
             if response.status_code == 200:
@@ -367,10 +386,10 @@ class AdsPowerManager:
 
         except Exception as e:
             logger.error(
-                f"❌ Erro ao verificar status do navegador para {user_id}: {str(e)}")
+                f"[ERRO] Erro ao verificar status do navegador para {user_id}: {str(e)}")
             return False
 
-    def start_browser(self, user_id: str, headless: bool = False, max_wait_time: int = 30) -> Tuple[bool, Optional[Dict]]:
+    def start_browser(self, user_id: str, headless: bool = False, max_wait_time: int = 60) -> Tuple[bool, Optional[Dict]]:
         """
         Inicia o navegador para um perfil e aguarda até estar pronto.
 
@@ -385,7 +404,7 @@ class AdsPowerManager:
         # Verificar se já está em execução
         if self.is_browser_running(user_id):
             logger.info(
-                f"✅ Navegador para perfil {user_id} já está em execução")
+                f"[OK] Navegador para perfil {user_id} já está em execução")
             browser_info = self.get_browser_info(user_id)
             return True, browser_info
 
@@ -394,20 +413,20 @@ class AdsPowerManager:
             # Adicionar parâmetro headless na URL
             url_start = f"{self.base_url}/api/v1/browser/start?user_id={user_id}&headless={str(headless).lower()}"
             response = requests.get(
-                url_start, headers={"Authorization": f"Bearer {self.api_key}"}, timeout=15)
+                url_start, headers={"Authorization": f"Bearer {self.api_key}"}, timeout=60)
 
             if response.status_code != 200:
                 logger.error(
-                    f"❌ Erro ao iniciar navegador: HTTP {response.status_code}")
+                    f"[ERRO] Erro ao iniciar navegador: HTTP {response.status_code}")
                 return False, None
 
             data = response.json()
             if data.get("code") != 0:
-                logger.error(f"❌ Erro ao iniciar navegador: {data.get('msg')}")
+                logger.error(f"[ERRO] Erro ao iniciar navegador: {data.get('msg')}")
                 return False, None
 
             logger.info(
-                f"🚀 Iniciando navegador para perfil {user_id} {'(headless)' if headless else ''}")
+                f"[INICIO] Iniciando navegador para perfil {user_id} {'(headless)' if headless else ''}")
 
             # Aguardar até o navegador estar pronto
             start_time = time.time()
@@ -418,17 +437,17 @@ class AdsPowerManager:
                 if browser_info and browser_info.get("selenium_ws"):
                     # Navegador está pronto
                     self.active_browsers[user_id] = browser_info
-                    logger.info(f"✅ Navegador pronto para perfil {user_id}")
+                    logger.info(f"[OK] Navegador pronto para perfil {user_id}")
                     return True, browser_info
 
             # Timeout - navegador não ficou pronto no tempo esperado
             logger.error(
-                f"⏰ Timeout ao aguardar navegador para perfil {user_id}")
+                f" Timeout ao aguardar navegador para perfil {user_id}")
             return False, None
 
         except Exception as e:
             logger.error(
-                f"❌ Erro ao iniciar navegador para perfil {user_id}: {str(e)}")
+                f"[ERRO] Erro ao iniciar navegador para perfil {user_id}: {str(e)}")
             return False, None
 
     def stop_browser(self, user_id: str) -> bool:
@@ -444,7 +463,7 @@ class AdsPowerManager:
         try:
             url_stop = f"{self.base_url}/api/v1/browser/stop?user_id={user_id}"
             response = requests.get(
-                url_stop, headers={"Authorization": f"Bearer {self.api_key}"}, timeout=10)
+                url_stop, headers={"Authorization": f"Bearer {self.api_key}"}, timeout=20)
 
             if response.status_code == 200:
                 data = response.json()
@@ -454,16 +473,16 @@ class AdsPowerManager:
                         del self.active_browsers[user_id]
 
                     logger.info(
-                        f"✅ Navegador para perfil {user_id} parado com sucesso")
+                        f"[OK] Navegador para perfil {user_id} parado com sucesso")
                     return True
 
             logger.warning(
-                f"⚠️ Falha ao parar navegador para perfil {user_id}")
+                f"[AVISO] Falha ao parar navegador para perfil {user_id}")
             return False
 
         except Exception as e:
             logger.error(
-                f"❌ Erro ao parar navegador para perfil {user_id}: {str(e)}")
+                f"[ERRO] Erro ao parar navegador para perfil {user_id}: {str(e)}")
             return False
 
     def close_browser(self, user_id: str) -> bool:
@@ -479,7 +498,7 @@ class AdsPowerManager:
         try:
             url_stop = f"{self.base_url}/api/v1/browser/stop?user_id={user_id}"
             response = requests.get(
-                url_stop, headers={"Authorization": f"Bearer {self.api_key}"}, timeout=10)
+                url_stop, headers={"Authorization": f"Bearer {self.api_key}"}, timeout=20)
 
             if response.status_code == 200:
                 data = response.json()
@@ -489,16 +508,16 @@ class AdsPowerManager:
                         del self.active_browsers[user_id]
 
                     logger.info(
-                        f"✅ Navegador para perfil {user_id} fechado com sucesso")
+                        f"[OK] Navegador para perfil {user_id} fechado com sucesso")
                     return True
 
             logger.warning(
-                f"⚠️ Falha ao fechar navegador para perfil {user_id}")
+                f"[AVISO] Falha ao fechar navegador para perfil {user_id}")
             return False
 
         except Exception as e:
             logger.error(
-                f"❌ Erro ao fechar navegador para perfil {user_id}: {str(e)}")
+                f"[ERRO] Erro ao fechar navegador para perfil {user_id}: {str(e)}")
             return False
 
     def get_browser_info(self, user_id: str) -> Optional[Dict]:
@@ -515,7 +534,7 @@ class AdsPowerManager:
             response = requests.get(
                 f"{self.base_url}/api/v1/browser/local-active",
                 headers={"Authorization": f"Bearer {self.api_key}"},
-                timeout=10
+                timeout=20
             )
 
             if response.status_code != 200:
@@ -539,7 +558,7 @@ class AdsPowerManager:
 
         except Exception as e:
             logger.error(
-                f"❌ Erro ao obter informações do navegador para {user_id}: {str(e)}")
+                f"[ERRO] Erro ao obter informações do navegador para {user_id}: {str(e)}")
             return None
 
     def connect_selenium(self, browser_info: Dict) -> Optional[webdriver.Chrome]:
@@ -556,7 +575,7 @@ class AdsPowerManager:
         webdriver_path = browser_info.get("webdriver_path")
 
         if not selenium_ws or not webdriver_path:
-            logger.error("❌ Informações de WebDriver incompletas")
+            logger.error("[ERRO] Informações de WebDriver incompletas")
             return None
 
         try:
@@ -565,11 +584,11 @@ class AdsPowerManager:
             options.add_experimental_option("debuggerAddress", selenium_ws)
 
             driver = webdriver.Chrome(service=service, options=options)
-            logger.info("✅ Conectado ao WebDriver Selenium do AdsPower")
+            logger.info("[OK] Conectado ao WebDriver Selenium do AdsPower")
             return driver
 
         except Exception as e:
-            logger.error(f"❌ Erro ao conectar ao WebDriver: {str(e)}")
+            logger.error(f"[ERRO] Erro ao conectar ao WebDriver: {str(e)}")
             return None
 
     def get_create_profile_stats(self, user_id: str) -> Dict:

@@ -50,14 +50,14 @@ def create_profile_with_fingerprint(base_url, headers, name, fingerprint_choice,
     if fingerprint_choice not in FINGERPRINTS:
         raise ValueError(f"Fingerprint inválido: {fingerprint_choice}")
 
-    # 🚀 Se proxy_config for None, usar um proxy fixo de teste
+    # [INICIO] Se proxy_config for None, usar um proxy fixo de teste
     if not proxy_config:
         proxy_config = {
             "proxy_type": "http",
-            "proxy_host": "123.0.0.1",  # 🛑 Altere para um IP de proxy real
+            "proxy_host": "123.0.0.1",  # [PARADA] Altere para um IP de proxy real
             "proxy_port": "8080",
-            "proxy_user": "proxyuser",  # 🛑 Se necessário, altere para um usuário real
-            "proxy_password": "proxypass",  # 🛑 Se necessário, altere para uma senha real
+            "proxy_user": "proxyuser",  # [PARADA] Se necessário, altere para um usuário real
+            "proxy_password": "proxypass",  # [PARADA] Se necessário, altere para uma senha real
             "proxy_soft": "luminati"
         }
 
@@ -88,19 +88,19 @@ def create_profile_with_fingerprint(base_url, headers, name, fingerprint_choice,
         "name": name,
         "group_id": group_id,
         "fingerprint_config": FINGERPRINTS[fingerprint_choice],
-        **proxy_data  # 🚀 Sempre incluir um proxy válido!
+        **proxy_data  # [INICIO] Sempre incluir um proxy válido!
     }
 
-    # 🔍 Debug: Exibir JSON enviado para a API
-    print("\n🔍 Dados enviados para a API (JSON):")
+    # [BUSCA] Debug: Exibir JSON enviado para a API
+    print("\n[BUSCA] Dados enviados para a API (JSON):")
     print(json.dumps(profile_data, indent=4))
 
     # Enviar a requisição para criar o perfil
     url = f"{base_url}/api/v1/user/create"
     response = make_request("POST", url, headers, profile_data)
 
-    # 🔍 Debug: Exibir resposta da API
-    print("\n🔍 Resposta da API:")
+    # [BUSCA] Debug: Exibir resposta da API
+    print("\n[BUSCA] Resposta da API:")
     print(response)
 
     return response
@@ -142,9 +142,15 @@ def list_groups(base_url, headers, page=1, page_size=10):
         raise ValueError("Resposta inválida ou não decodificável da API")
 
 
-def get_profiles(base_url, headers):
+def get_profiles(base_url, headers, only_in_groups=True):
     """
-    Obtém a lista completa de perfis ativos no AdsPower.
+    Obtém a lista de perfis no AdsPower.
+
+    Args:
+        base_url (str): URL base da API do AdsPower
+        headers (dict): Headers para autenticação
+        only_in_groups (bool): Se True, retorna apenas perfis que estão em grupos.
+                             Se False, retorna todos os perfis.
     """
     all_profiles = []
     try:
@@ -158,29 +164,36 @@ def get_profiles(base_url, headers):
 
         if "data" in data and "list" in data["data"]:
             profiles = data["data"]["list"]
-            # Filtrar apenas perfis ativos (com group_id diferente de '0' e group_name não vazio)
-            active_profiles = [
-                profile for profile in profiles
-                if profile.get('group_id') != '0' and profile.get('group_name')
-            ]
-            all_profiles.extend(active_profiles)
+
+            if only_in_groups:
+                # Filtrar apenas perfis em grupos
+                filtered_profiles = [
+                    profile for profile in profiles
+                    if profile.get('group_id') != '0' and profile.get('group_name')
+                ]
+            else:
+                # Retornar todos os perfis
+                filtered_profiles = profiles
+
+            all_profiles.extend(filtered_profiles)
 
             logging.info(f"Total de perfis encontrados: {len(profiles)}")
-            logging.info(f"Perfis ativos: {len(active_profiles)}")
+            logging.info(f"Perfis filtrados: {len(filtered_profiles)}")
 
-            # Log detalhado dos perfis inativos para debug
-            inactive_profiles = [
-                profile for profile in profiles
-                if profile.get('group_id') == '0' or not profile.get('group_name')
-            ]
-            if inactive_profiles:
-                logging.info("Perfis inativos encontrados:")
-                for profile in inactive_profiles:
-                    logging.info(f"Nome: {profile.get('name')}, ID: {profile.get('user_id')}, "
-                                 f"Group ID: {profile.get('group_id')}, Group Name: {profile.get('group_name')}")
+            # Log detalhado dos perfis excluídos do filtro para debug
+            if only_in_groups:
+                excluded_profiles = [
+                    profile for profile in profiles
+                    if profile.get('group_id') == '0' or not profile.get('group_name')
+                ]
+                if excluded_profiles:
+                    logging.info("Perfis fora de grupos encontrados:")
+                    for profile in excluded_profiles:
+                        logging.info(f"Nome: {profile.get('name')}, ID: {profile.get('user_id')}, "
+                                     f"Group ID: {profile.get('group_id')}, Group Name: {profile.get('group_name')}")
 
     except requests.exceptions.RequestException as e:
-        logging.error(f"❌ Erro ao buscar perfis: {e}")
+        logging.error(f"[ERRO] Erro ao buscar perfis: {e}")
 
     return all_profiles
 
@@ -250,23 +263,6 @@ def delete_profile_cache(base_url, headers, user_id):
     url = f"{base_url}/api/v1/user/delete-cache"
     payload = {"user_id": user_id}
     return make_request("POST", url, headers, payload)
-
-
-def list_groups(base_url, headers, page=1, page_size=15):
-    """
-    Lista os grupos existentes no AdsPower.
-
-    Args:
-        base_url (str): URL base da API do AdsPower.
-        headers (dict): Cabeçalhos da requisição.
-        page (int): Página atual.
-        page_size (int): Número de grupos por página.
-
-    Returns:
-        dict: Resposta da API.
-    """
-    url = f"{base_url}/api/v1/group/list?page={page}&page_size={page_size}"
-    return make_request("GET", url, headers)
 
 
 def update_profile(base_url, headers, user_id, update_data):
