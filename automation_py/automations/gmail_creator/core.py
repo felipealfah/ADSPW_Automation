@@ -62,7 +62,8 @@ class GmailCreator:
         """
         try:
             if not self.browser_manager.ensure_browser_ready(user_id):
-                logger.error("[ERRO] Falha ao garantir que o browser está pronto")
+                logger.error(
+                    "[ERRO] Falha ao garantir que o browser está pronto")
                 return False
 
             self.driver = self.browser_manager.get_driver()
@@ -94,7 +95,8 @@ class GmailCreator:
 
             # Inicializar o browser primeiro
             if not self.initialize_browser(user_id):
-                raise GmailCreationError("[ERRO] Falha ao inicializar o browser")
+                raise GmailCreationError(
+                    "[ERRO] Falha ao inicializar o browser")
 
             # Contador para tentativas de criação completa da conta
             complete_attempts = 0
@@ -249,7 +251,8 @@ class GmailCreator:
                     logger.error(
                         f"[ERRO] Erro durante a tentativa {complete_attempts}: {str(inner_e)}")
                     if complete_attempts < max_complete_attempts:
-                        logger.info("[ATUALIZANDO] Reiniciando processo completo...")
+                        logger.info(
+                            "[ATUALIZANDO] Reiniciando processo completo...")
                         self.driver.get("https://accounts.google.com/signup")
                         time.sleep(5)
                     else:

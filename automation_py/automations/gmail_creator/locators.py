@@ -32,6 +32,48 @@ class AccountCreationLocators:
         "Uso pessoal", "Personal use", "Uso personal"
     ])
 
+    # Adicione locators alternativos específicos para português-BR
+    PT_MONTH_DROPDOWN_XPATH: str = "//div[@id='month']//div[contains(@class,'VfPpkd-TkwUic')]"
+    PT_MONTH_OPTION_TEMPLATE: str = "//li[@data-value='{month_value}']"
+
+    # Scripts JavaScript para interação com campos
+    JS_FILL_DAY: str = """
+        document.getElementById('day').value = '{value}';
+        document.getElementById('day').dispatchEvent(new Event('input'));
+        document.getElementById('day').dispatchEvent(new Event('change'));
+    """
+
+    JS_FILL_YEAR: str = """
+        document.getElementById('year').value = '{value}';
+        document.getElementById('year').dispatchEvent(new Event('input'));
+        document.getElementById('year').dispatchEvent(new Event('change'));
+    """
+
+    JS_SELECT_MONTH: str = """
+        // Clica no dropdown
+        document.getElementById('month').click();
+        setTimeout(function() {
+            // Seleciona a opção pelo data-value
+            var option = document.querySelector("li[data-value='" + arguments[0] + "']");
+            if (option) {
+                option.click();
+            }
+        }, 1000);
+    """
+
+    # Scripts para verificação dos campos
+    JS_IS_MONTH_DROPDOWN: str = """
+        return document.querySelector('#month div[role="combobox"]') !== null;
+    """
+
+    JS_GET_INTERFACE_LANGUAGE: str = """
+        // Detecta o idioma da interface baseado nos textos dos campos
+        var monthLabel = document.querySelector('#month .VfPpkd-NLUYnc-V67aGc').innerText;
+        if (monthLabel === 'Mês') return 'pt-BR';
+        if (monthLabel === 'Month') return 'en';
+        return 'unknown';
+    """
+
 
 @dataclass
 class UsernameLocators:
