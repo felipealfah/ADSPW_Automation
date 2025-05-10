@@ -1,7 +1,8 @@
-from flask import Flask, request, jsonify, send_from_directory
-from powerads_api.profiles import ProfileManager, get_profiles
-from credentials.credentials_manager import get_credential
 from flask_swagger_ui import get_swaggerui_blueprint
+from credentials.credentials_manager import get_credential
+from powerads_api.profiles import ProfileManager, get_profiles
+from flask import Flask, request, jsonify, send_from_directory
+
 import logging
 import json
 import os
@@ -500,6 +501,148 @@ swagger_spec = {
                     }
                 }
             }
+        },
+        "/adsense-creator/{user_id}": {
+            "post": {
+                "summary": "Iniciar criação de conta AdSense",
+                "description": "Endpoint para iniciar a criação de uma conta AdSense",
+                "produces": ["application/json"],
+                "parameters": [
+                    {
+                        "name": "user_id",
+                        "in": "path",
+                        "description": "ID do perfil do AdsPower a ser utilizado",
+                        "required": True,
+                        "type": "string"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Processo de criação iniciado",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "success": {"type": "boolean"},
+                                "job_id": {"type": "string"},
+                                "status": {"type": "string"},
+                                "message": {"type": "string"},
+                                "status_url": {"type": "string"}
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Dados incompletos",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "success": {"type": "boolean"},
+                                "error": {"type": "string"},
+                                "error_code": {"type": "string"}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/adsense-code-capture/{user_id}": {
+            "post": {
+                "summary": "Capturar códigos de verificação do AdSense",
+                "description": "Endpoint para capturar os códigos de verificação do AdSense (pub-ID e snippet ads.txt)",
+                "produces": ["application/json"],
+                "parameters": [
+                    {
+                        "name": "user_id",
+                        "in": "path",
+                        "description": "ID do perfil do AdsPower a ser utilizado",
+                        "required": True,
+                        "type": "string"
+                    },
+                    {
+                        "name": "body",
+                        "in": "body",
+                        "description": "Dados para captura dos códigos",
+                        "required": True,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "website_url": {
+                                    "type": "string",
+                                    "description": "URL do site para associar aos códigos"
+                                },
+                                "headless": {
+                                    "type": "boolean",
+                                    "description": "Se deve executar em modo headless"
+                                },
+                                "previous_job_id": {
+                                    "type": "string",
+                                    "description": "ID do job de criação da conta (opcional)"
+                                }
+                            },
+                            "required": ["website_url"]
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Processo de captura iniciado",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "success": {"type": "boolean"},
+                                "job_id": {"type": "string"},
+                                "status": {"type": "string"},
+                                "message": {"type": "string"},
+                                "status_url": {"type": "string"}
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Dados incompletos",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "success": {"type": "boolean"},
+                                "error": {"type": "string"},
+                                "error_code": {"type": "string"}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/adsense-job-status/{job_id}": {
+            "get": {
+                "summary": "Verificar status de job de criação de conta AdSense",
+                "description": "Endpoint para verificar o status de um job de criação de conta AdSense",
+                "produces": ["application/json"],
+                "parameters": [
+                    {
+                        "name": "job_id",
+                        "in": "path",
+                        "description": "ID do job",
+                        "required": True,
+                        "type": "string"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Status do job",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "404": {
+                        "description": "Job não encontrado",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "success": {"type": "boolean"},
+                                "error": {"type": "string"}
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -956,7 +1099,7 @@ def process_gmail_creation(job_id, user_id, data):
         except ConnectionError as e:
             error_msg = "Erro de conexão ao iniciar o navegador"
             error_details = f"Falha ao conectar com o AdsPower para iniciar o navegador: {str(e)}. " \
-                            f"Verifique se o serviço AdsPower está em execução e acessível no endereço {base_url}."
+                f"Verifique se o serviço AdsPower está em execução e acessível no endereço {base_url}."
             logger.error(f"[ERRO] {error_msg}: {str(e)}")
             update_job_status(job_id, "failed", error_msg,
                               error_details=error_details)
@@ -964,7 +1107,7 @@ def process_gmail_creation(job_id, user_id, data):
         except TimeoutError as e:
             error_msg = "Timeout ao iniciar o navegador"
             error_details = f"O navegador demorou muito para iniciar: {str(e)}. " \
-                            f"Verifique a carga do sistema e se o AdsPower está respondendo normalmente."
+                f"Verifique a carga do sistema e se o AdsPower está respondendo normalmente."
             logger.error(f"[ERRO] {error_msg}: {str(e)}")
             update_job_status(job_id, "failed", error_msg,
                               error_details=error_details)
@@ -972,7 +1115,7 @@ def process_gmail_creation(job_id, user_id, data):
         except Exception as e:
             error_msg = "Erro ao iniciar o navegador"
             error_details = f"Falha ao iniciar o navegador para o perfil {user_id}: {str(e)}. " \
-                            f"Tipo de erro: {type(e).__name__}"
+                f"Tipo de erro: {type(e).__name__}"
             logger.error(f"[ERRO] {error_msg}: {str(e)}")
             update_job_status(job_id, "failed", error_msg,
                               error_details=error_details)
@@ -2015,6 +2158,24 @@ def n8n_help():
                 "method": "POST",
                 "description": "Endpoint de compatibilidade - usa /n8n/create-gmail e aguarda resultado",
                 "documentation": "Mantido para compatibilidade com sistemas existentes"
+            },
+            {
+                "path": "/adsense-creator/<user_id>",
+                "method": "POST",
+                "description": "Cria uma conta AdSense (apenas a primeira parte do processo)",
+                "documentation": "Inicia o processo de criação da conta AdSense e retorna um job_id"
+            },
+            {
+                "path": "/adsense-code-capture/<user_id>",
+                "method": "POST",
+                "description": "Captura os códigos de verificação do AdSense (pub-ID e snippet ads.txt)",
+                "documentation": "Segunda parte do processo, deve ser executado após a criação da conta"
+            },
+            {
+                "path": "/adsense-job-status/<job_id>",
+                "method": "GET",
+                "description": "Verifica o status de um job de AdSense",
+                "documentation": "Retorna o status atual e os resultados quando concluído"
             }
         ],
         "exemplos_n8n": {
@@ -2370,6 +2531,335 @@ def process_gmail_creation_with_callback(job_id, user_id, data, webhook_callback
         except Exception as update_error:
             logger.error(
                 f"[ERRO] Não foi possível atualizar o status do job após erro: {str(update_error)}")
+
+# --- Rotas para AdSense Creator ---
+
+
+@app.route('/adsense-creator/<user_id>', methods=['POST'])
+def create_adsense_account(user_id):
+    """
+    Endpoint para iniciar a criação de uma conta AdSense.
+    Recebe a URL do site e o país/território para a conta.
+
+    Parâmetros:
+    - user_id: ID do perfil do AdsPower a ser utilizado
+
+    Corpo da requisição (JSON):
+    {
+        "website_url": "https://example.com",
+        "country": "Brasil",
+        "headless": false  # opcional
+    }
+
+    Resposta:
+    {
+        "success": true,
+        "job_id": "job-uuid",
+        "status": "pending",
+        "message": "Processo de criação de conta AdSense iniciado"
+    }
+    """
+    try:
+        # Verificar se o perfil existe
+        if not user_id:
+            return jsonify({
+                "success": False,
+                "error": "ID do perfil não fornecido",
+                "error_code": "MISSING_USER_ID"
+            }), 400
+
+        # Recuperar parâmetros do corpo da requisição
+        data = request.json or {}
+
+        # Validar dados obrigatórios
+        if not data.get('website_url'):
+            return jsonify({
+                "success": False,
+                "error": "URL do site não fornecida",
+                "error_code": "MISSING_WEBSITE_URL"
+            }), 400
+
+        if not data.get('country'):
+            return jsonify({
+                "success": False,
+                "error": "País/território não fornecido",
+                "error_code": "MISSING_COUNTRY"
+            }), 400
+
+        # Gerar um job_id único
+        job_id = str(uuid.uuid4())
+
+        # Criar dados do job
+        job_data = {
+            "job_id": job_id,
+            "user_id": user_id,
+            "status": "pending",
+            "created_at": time.time(),
+            "website_url": data.get('website_url'),
+            "country": data.get('country'),
+            "headless": data.get('headless', False),
+            "message": "Processo de criação de conta AdSense iniciado"
+        }
+
+        # Salvar dados do job em arquivo
+        job_file = os.path.join(JOBS_DIR, f"{job_id}.json")
+        with open(job_file, "w") as f:
+            json.dump(job_data, f, indent=4)
+
+        # Iniciar processo em uma thread separada
+        Thread(
+            target=process_adsense_creation,
+            args=(job_id, user_id, data),
+            daemon=True
+        ).start()
+
+        logger.info(
+            f"[ADSENSE] Job {job_id} iniciado para criação de conta AdSense no perfil {user_id}")
+
+        return jsonify({
+            "success": True,
+            "job_id": job_id,
+            "user_id": user_id,
+            "status": "pending",
+            "message": "Processo de criação de conta AdSense iniciado",
+            "status_url": f"/adsense-job-status/{job_id}"
+        })
+
+    except Exception as e:
+        logger.error(
+            f"[ERRO] Erro ao iniciar criação de conta AdSense: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "error_code": "ADSENSE_START_ERROR"
+        }), 500
+
+
+@app.route('/adsense-job-status/<job_id>', methods=['GET'])
+def adsense_job_status(job_id):
+    """
+    Endpoint para verificar o status de um job de criação de conta AdSense.
+
+    Retorna o status atual do job e os detalhes da conta criada, se disponível.
+    """
+    try:
+        # Normalizar o ID do job
+        job_id = job_id.strip()
+
+        # Verificar se o arquivo do job existe
+        job_file = os.path.join(JOBS_DIR, f"{job_id}.json")
+        if not os.path.exists(job_file):
+            return jsonify({
+                "success": False,
+                "error": "Job não encontrado",
+                "job_id": job_id,
+                "status": "unknown"
+            }), 404
+
+        # Carregar dados do job
+        with open(job_file, "r") as f:
+            job_data = json.load(f)
+
+        return jsonify(job_data)
+
+    except Exception as e:
+        logger.error(
+            f"[ERRO] Erro ao verificar status do job {job_id}: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "job_id": job_id,
+            "status": "error"
+        }), 500
+
+
+def process_adsense_creation(job_id, user_id, data):
+    """
+    Processa a criação de uma conta AdSense em background.
+
+    Args:
+        job_id: ID do job
+        user_id: ID do perfil do AdsPower
+        data: Dados para criação da conta
+    """
+    try:
+        # Atualizar status do job
+        update_job_status(
+            job_id=job_id,
+            status="processing",
+            message="Iniciando processo de criação de conta AdSense"
+        )
+
+        # Importar classes necessárias
+        try:
+            from automations.adsense_creator.core import AdSenseCreator
+            from powerads_api.browser_manager import BrowserManager, BrowserConfig
+            from powerads_api.ads_power_manager import AdsPowerManager
+            import requests
+        except ImportError as e:
+            update_job_status(
+                job_id=job_id,
+                status="failed",
+                message=f"Erro ao importar dependências: {str(e)}",
+                error_details=f"Módulo não encontrado: {str(e)}. Verifique se o pacote adsense_creator está instalado."
+            )
+            logger.error(
+                f"[ERRO] Erro ao importar módulos para AdSense Creator: {str(e)}")
+            return
+
+        # Obter credenciais
+        base_url = get_credential("PA_BASE_URL")
+        api_key = get_credential("PA_API_KEY")
+
+        if not base_url or not api_key:
+            update_job_status(
+                job_id=job_id,
+                status="failed",
+                message="Credenciais do AdsPower não configuradas",
+                error_details="As credenciais do AdsPower (PA_BASE_URL e/ou PA_API_KEY) não estão configuradas."
+            )
+            return
+
+        # Verificar diretamente se o perfil existe através de uma chamada API direta
+        try:
+            headers = {"Authorization": f"Bearer {api_key}"}
+            response = requests.get(
+                f"{base_url}/api/v1/user/list", headers=headers, timeout=30)
+
+            if response.status_code == 200:
+                api_data = response.json()
+                if api_data.get("code") == 0 and "list" in api_data.get("data", {}):
+                    profiles = api_data["data"]["list"]
+                    profile_exists = any(profile.get(
+                        "user_id") == user_id for profile in profiles)
+
+                    if not profile_exists:
+                        logger.warning(
+                            f"Perfil {user_id} não encontrado na lista de perfis. Perfis disponíveis: {[p.get('user_id') for p in profiles]}")
+                        update_job_status(
+                            job_id=job_id,
+                            status="failed",
+                            message=f"Perfil {user_id} não encontrado",
+                            error_details=f"O perfil com ID {user_id} não foi encontrado na lista de perfis do AdsPower. Verifique se o perfil existe e está ativo."
+                        )
+                        return
+                    else:
+                        logger.info(
+                            f"Perfil {user_id} encontrado. Continuando com a criação da conta.")
+                else:
+                    logger.error(
+                        f"Resposta inválida da API ao listar perfis: {api_data}")
+                    update_job_status(
+                        job_id=job_id,
+                        status="failed",
+                        message="Falha ao verificar se o perfil existe",
+                        error_details=f"Resposta inválida da API AdsPower: {api_data}"
+                    )
+                    return
+            else:
+                logger.error(
+                    f"Falha ao consultar API do AdsPower: Status code {response.status_code}")
+                update_job_status(
+                    job_id=job_id,
+                    status="failed",
+                    message=f"Falha ao verificar perfil: Status code {response.status_code}",
+                    error_details=f"A API do AdsPower retornou status code {response.status_code} ao tentar listar perfis."
+                )
+                return
+        except Exception as e:
+            logger.error(f"Erro na requisição ao verificar perfil: {str(e)}")
+            update_job_status(
+                job_id=job_id,
+                status="failed",
+                message=f"Erro ao verificar perfil: {str(e)}",
+                error_details=f"Ocorreu um erro ao tentar verificar se o perfil existe: {str(e)}"
+            )
+            return
+
+        # Configurar browser manager
+        browser_config = BrowserConfig(
+            headless=data.get('headless', False),
+            max_wait_time=data.get('max_wait_time', 60)
+        )
+
+        try:
+            adspower_manager = AdsPowerManager(base_url, api_key)
+            browser_manager = BrowserManager(adspower_manager)
+            browser_manager.set_config(browser_config)
+
+            # Verificar se o AdsPower está acessível
+            if not adspower_manager.check_api_health(force_check=True):
+                update_job_status(
+                    job_id=job_id,
+                    status="failed",
+                    message="Não foi possível conectar ao AdsPower",
+                    error_details="Falha na conexão com a API do AdsPower. Verifique se o serviço está em execução."
+                )
+                return
+
+            # Criar objeto de conta com os dados recebidos
+            account_data = {
+                "website_url": data.get('website_url'),
+                "country": data.get('country')
+            }
+
+            # Inicializar o criador de AdSense
+            adsense_creator = AdSenseCreator(
+                browser_manager=browser_manager,
+                account_data=account_data,
+                profile_name=user_id
+            )
+
+            # Executar criação da conta
+            update_job_status(
+                job_id=job_id,
+                status="processing",
+                message="Iniciando browser e criação da conta AdSense"
+            )
+
+            success, result = adsense_creator.create_account(user_id)
+
+            # Atualizar status final
+            if success:
+                update_job_status(
+                    job_id=job_id,
+                    status="completed",
+                    message="Conta AdSense criada com sucesso",
+                    result=result
+                )
+                logger.info(
+                    f"[ADSENSE] Conta AdSense criada com sucesso para o job {job_id}")
+            else:
+                update_job_status(
+                    job_id=job_id,
+                    status="failed",
+                    message="Falha ao criar conta AdSense",
+                    error_details="O processo de criação falhou. Verifique os logs para mais detalhes."
+                )
+                logger.error(
+                    f"[ADSENSE] Falha ao criar conta AdSense para o job {job_id}")
+
+        except Exception as e:
+            update_job_status(
+                job_id=job_id,
+                status="failed",
+                message=f"Erro durante criação da conta: {str(e)}",
+                error_details=f"Exceção: {type(e).__name__}: {str(e)}"
+            )
+            logger.error(f"[ERRO] Erro ao criar conta AdSense: {str(e)}")
+
+    except Exception as e:
+        logger.error(
+            f"[ERRO] Erro geral no processamento do job {job_id}: {str(e)}")
+        try:
+            update_job_status(
+                job_id=job_id,
+                status="failed",
+                message=f"Erro não tratado: {str(e)}",
+                error_details=f"Exceção não tratada: {type(e).__name__}: {str(e)}"
+            )
+        except:
+            pass
 
 
 if __name__ == '__main__':

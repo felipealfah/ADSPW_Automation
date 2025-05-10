@@ -1,0 +1,595 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "AdsPower RPA API",
+    "description": "API para automa\u00e7\u00e3o RPA com AdsPower",
+    "version": "1.0.0"
+  },
+  "basePath": "/",
+  "schemes": [
+    "http",
+    "https"
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Verifica\u00e7\u00e3o de sa\u00fade da API",
+        "description": "Endpoint para verificar se o servi\u00e7o est\u00e1 funcionando",
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "Servi\u00e7o funcionando corretamente",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sms-webhook": {
+      "post": {
+        "summary": "Receber notifica\u00e7\u00f5es de SMS",
+        "description": "Endpoint para receber notifica\u00e7\u00f5es de SMS da API SMS-Activate",
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "description": "Dados do webhook SMS",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "phone": {
+                  "type": "string"
+                },
+                "sms": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SMS recebido com sucesso",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Dados incompletos",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean"
+                },
+                "error": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sms-status/{activation_id}": {
+      "get": {
+        "summary": "Verificar status de SMS",
+        "description": "Endpoint para verificar o status de um SMS pelo ID de ativa\u00e7\u00e3o",
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "activation_id",
+            "in": "path",
+            "description": "ID de ativa\u00e7\u00e3o do SMS",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Status do SMS",
+            "schema": {
+              "type": "object"
+            }
+          },
+          "404": {
+            "description": "SMS n\u00e3o encontrado",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean"
+                },
+                "error": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/profiles": {
+      "get": {
+        "summary": "Listar perfis do AdsPower",
+        "description": "Endpoint para listar todos os perfis do AdsPower",
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "force_refresh",
+            "in": "query",
+            "description": "For\u00e7ar atualiza\u00e7\u00e3o dos perfis",
+            "required": false,
+            "type": "boolean",
+            "default": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de perfis",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean"
+                },
+                "count": {
+                  "type": "integer"
+                },
+                "profiles": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nenhum perfil encontrado",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean"
+                },
+                "error": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/profiles/{user_id}": {
+      "get": {
+        "summary": "Obter detalhes de um perfil",
+        "description": "Endpoint para obter detalhes de um perfil espec\u00edfico",
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "description": "ID do perfil",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Detalhes do perfil",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean"
+                },
+                "profile": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Perfil n\u00e3o encontrado",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean"
+                },
+                "error": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/gmail-job-status/{job_id}": {
+      "get": {
+        "summary": "Verificar status de job Gmail",
+        "description": "Endpoint para verificar o status de um job de cria\u00e7\u00e3o de Gmail",
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "description": "ID do job",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Status do job",
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    "/gmail-accounts": {
+      "get": {
+        "summary": "Listar contas Gmail criadas",
+        "description": "Endpoint para listar todas as contas Gmail criadas",
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "N\u00famero m\u00e1ximo de contas a retornar",
+            "required": false,
+            "type": "integer",
+            "default": 100
+          },
+          {
+            "name": "newest_first",
+            "in": "query",
+            "description": "Retornar contas mais recentes primeiro",
+            "required": false,
+            "type": "boolean",
+            "default": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de contas Gmail",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean"
+                },
+                "count": {
+                  "type": "integer"
+                },
+                "accounts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/n8n/batch-gmail-creation": {
+      "post": {
+        "summary": "Criar contas Gmail em lote",
+        "description": "Endpoint para criar m\u00faltiplas contas Gmail em lote",
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "description": "Dados para cria\u00e7\u00e3o em lote",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "profiles": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "user_id": {
+                        "type": "string"
+                      },
+                      "phone_params": {
+                        "type": "object"
+                      },
+                      "headless": {
+                        "type": "boolean"
+                      }
+                    }
+                  }
+                },
+                "common_params": {
+                  "type": "object"
+                },
+                "max_concurrent": {
+                  "type": "integer"
+                },
+                "webhook_callback": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lote criado com sucesso",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean"
+                },
+                "batch_id": {
+                  "type": "string"
+                },
+                "total_jobs": {
+                  "type": "integer"
+                },
+                "jobs": {
+                  "type": "array"
+                },
+                "status_url": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/n8n/batch-status/{batch_id}": {
+      "get": {
+        "summary": "Verificar status de lote",
+        "description": "Endpoint para verificar o status de um lote de cria\u00e7\u00e3o de contas Gmail",
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "description": "ID do lote",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "include_jobs",
+            "in": "query",
+            "description": "Incluir detalhes de cada job",
+            "required": false,
+            "type": "boolean",
+            "default": false
+          },
+          {
+            "name": "include_accounts",
+            "in": "query",
+            "description": "Incluir detalhes das contas criadas",
+            "required": false,
+            "type": "boolean",
+            "default": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Status do lote",
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    "/n8n/batch-cancel/{batch_id}": {
+      "post": {
+        "summary": "Cancelar lote",
+        "description": "Endpoint para cancelar um lote de cria\u00e7\u00e3o de contas Gmail",
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "description": "ID do lote",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lote cancelado",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "batch_id": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "cancelled_jobs": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/n8n-job-status/{job_id}": {
+      "get": {
+        "summary": "Verificar status de job",
+        "description": "Endpoint para verificar o status de um job espec\u00edfico",
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "description": "ID do job",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Status do job",
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    "/n8n/create-gmail/{user_id}": {
+      "post": {
+        "summary": "Criar conta Gmail ass\u00edncrona",
+        "description": "Endpoint para criar uma \u00fanica conta Gmail de forma ass\u00edncrona",
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "description": "ID do perfil",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "description": "Par\u00e2metros para a cria\u00e7\u00e3o da conta",
+            "required": false,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "phone_params": {
+                  "type": "object"
+                },
+                "headless": {
+                  "type": "boolean"
+                },
+                "max_wait_time": {
+                  "type": "integer"
+                },
+                "webhook_callback": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job criado com sucesso",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "job_id": {
+                  "type": "string"
+                },
+                "user_id": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "status_url": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/n8n/help": {
+      "get": {
+        "summary": "Ajuda da API",
+        "description": "Endpoint de ajuda que lista todos os endpoints dispon\u00edveis para integra\u00e7\u00e3o com n8n",
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "Documenta\u00e7\u00e3o da API",
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    }
+  }
+}
