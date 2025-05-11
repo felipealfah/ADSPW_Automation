@@ -42,7 +42,9 @@ class WebsiteCodeInjector:
         self.wait = WebDriverWait(driver, timeouts.DEFAULT_WAIT)
         self.verification_code = ""
         self.publisher_id = ""
+        # Armazenar inicialmente a URL fornecida, mas será substituída depois pela URL real capturada da página
         self.website_url = website_data.get("website_url", "")
+        self.real_website_url = None  # Armazenará a URL real capturada da página
         self.max_retries = 3
         self.retry_delay = 2
         # Lista para rastrear screenshots gerados nesta instância
@@ -102,6 +104,16 @@ class WebsiteCodeInjector:
             if DEBUG_MODE:
                 self._save_screenshot("adsense_verification_page")
 
+            # Capturar a URL real do site da página
+            real_url = self._capture_real_site_url()
+            if real_url:
+                self.real_website_url = real_url
+                self.website_url = real_url  # Substituir pela URL real
+                logger.info(f"[OK] URL real do site capturada: {real_url}")
+            else:
+                logger.warning(
+                    "[AVISO] Não foi possível capturar a URL real do site. Usando a URL fornecida na requisição.")
+
             # Clicar no radio button "Snippet do ads.txt"
             if self._click_ads_txt_radio_button():
                 logger.info(
@@ -142,6 +154,8 @@ class WebsiteCodeInjector:
             # Retornar os dados capturados
             self.website_data["publisher_id"] = self.publisher_id
             self.website_data["verification_code"] = self.verification_code
+            # Atualizar com a URL real capturada
+            self.website_data["website_url"] = self.website_url
 
             # Verificar se capturamos pelo menos um dos códigos
             if not self.verification_code:
@@ -509,6 +523,90 @@ class WebsiteCodeInjector:
                 f"[ERRO] Erro ao capturar snippet do ads.txt: {str(e)}")
             return False
 
+    def _capture_real_site_url(self) -> str:
+        """
+        Captura a URL real do site diretamente da página do AdSense.
+
+        Returns:
+            str: URL real do site ou None se não for possível capturar
+        """
+        try:
+            logger.info("[INFO] Tentando capturar a URL real do site...")
+
+            # XPath fornecido para o elemento que contém a URL do site
+            site_url_xpath = "/html/body/div[1]/bruschetta-app/as-exception-handler/div[2]/div/div[2]/div/main/div[2]/site-management/as-exception-handler/sites/slidealog[4]/focus-trap/div[2]/material-drawer/div[2]/div[2]/div/paneled-detail/header/div/h3/p"
+
+            # XPaths alternativos para procurar caso o principal não funcione
+            alternative_xpaths = [
+                "//p[contains(@class, 'site-url')]",
+                "//h3/p",
+                "//header//p",
+                "//div[contains(@class, 'site-url')]",
+                "//div[contains(text(), '.com') or contains(text(), '.br') or contains(text(), '.net')]"
+            ]
+
+            # Tentar o XPath principal primeiro
+            if self._check_element_exists(By.XPATH, site_url_xpath, timeout=5):
+                element = self.driver.find_element(By.XPATH, site_url_xpath)
+                url_text = element.text.strip()
+
+                # Verificar se é uma URL válida
+                if url_text and ("." in url_text):
+                    # Adicionar http:// ou https:// se não tiver
+                    if not url_text.startswith(('http://', 'https://')):
+                        url_text = 'https://' + url_text
+
+                    logger.info(
+                        f"[OK] URL real do site capturada com XPath principal: {url_text}")
+                    return url_text
+
+            # Se não encontrou com o XPath principal, tentar os alternativos
+            for xpath in alternative_xpaths:
+                try:
+                    elements = self.driver.find_elements(By.XPATH, xpath)
+                    for element in elements:
+                        text = element.text.strip()
+                        # Verificar se parece uma URL válida (tem um ponto e não é muito longo)
+                        if text and ("." in text) and len(text) < 100:
+                            # Adicionar http:// ou https:// se não tiver
+                            if not text.startswith(('http://', 'https://')):
+                                text = 'https://' + text
+
+                            logger.info(
+                                f"[OK] URL real do site capturada com XPath alternativo: {text}")
+                            return text
+                except Exception as e:
+                    logger.warning(
+                        f"[AVISO] Erro ao tentar XPath alternativo: {str(e)}")
+                    continue
+
+            # Se não encontrou com nenhum XPath, buscar no corpo da página
+            page_source = self.driver.page_source
+            # Padrão para extrair domínios
+            domain_pattern = r'[a-zA-Z0-9][-a-zA-Z0-9]*\.[a-zA-Z0-9][-a-zA-Z0-9]*\.[a-zA-Z]{2,}'
+            matches = re.findall(domain_pattern, page_source)
+
+            # Filtrar resultados para remover matches inválidos (como google.com, etc)
+            for match in matches:
+                # Pular domínios conhecidos de sistemas
+                if any(domain in match for domain in ['google.com', 'googleapis.com', 'gstatic.com', 'adsense.com']):
+                    continue
+
+                # Usar o primeiro domínio válido encontrado
+                url = 'https://' + match
+                logger.info(
+                    f"[OK] URL real do site extraída do corpo da página: {url}")
+                return url
+
+            logger.warning(
+                "[AVISO] Não foi possível capturar a URL real do site")
+            return None
+
+        except Exception as e:
+            logger.error(
+                f"[ERRO] Falha ao capturar URL real do site: {str(e)}")
+            return None
+
     def get_captured_data(self) -> Dict[str, str]:
         """
         Retorna os dados capturados em formato processado.
@@ -534,7 +632,8 @@ class WebsiteCodeInjector:
             # Original completo (para compatibilidade)
             "verification_code": self.verification_code,
             "pub": pub_id,  # Apenas o número, sem "pub-"
-            "direct": direct_id  # Apenas o ID direto
+            "direct": direct_id,  # Apenas o ID direto
+            "website_url": self.website_url  # Adicionar a URL real do site nos dados capturados
         }
 
     def _wait_for_page_load(self, timeout=10):

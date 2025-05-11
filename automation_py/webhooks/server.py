@@ -316,8 +316,11 @@ def update_job_status(job_id: str, status: str, message: str, result: dict = Non
         if os.path.exists(job_file):
             with open(job_file, "r") as f:
                 job_data = json.load(f)
+                logger.info(
+                    f"[DEBUG] Job {job_id} lido do arquivo: website_url={job_data.get('website_url')}")
         else:
             job_data = {"id": job_id}
+            logger.info(f"[DEBUG] Job {job_id} não encontrado, criando novo")
 
         # Atualizar dados
         job_data.update({
@@ -327,10 +330,27 @@ def update_job_status(job_id: str, status: str, message: str, result: dict = Non
         })
 
         if result:
+            logger.info(
+                f"[DEBUG] Atualizando job {job_id} com resultado: site_url={result.get('site_url')}")
             job_data["result"] = result
 
         if error_details:
             job_data["error"] = error_details
+
+        # Log do job antes de salvar
+        if "website_url" in job_data:
+            logger.info(
+                f"[DEBUG] Job {job_id} antes de salvar: website_url={job_data.get('website_url')}")
+        if "result" in job_data and "site_url" in job_data.get("result", {}):
+            logger.info(
+                f"[DEBUG] Job {job_id} antes de salvar: result.site_url={job_data.get('result', {}).get('site_url')}")
+
+        # Remover o campo website_url quando o job estiver completo e tiver o campo site_url no resultado
+        if status == "completed" and result and "site_url" in result:
+            if "website_url" in job_data:
+                logger.info(
+                    f"[DEBUG] Removendo website_url do job {job_id} ao finalizar com sucesso")
+                job_data.pop("website_url", None)
 
         # Salvar arquivo atualizado
         with open(job_file, "w") as f:
@@ -794,6 +814,109 @@ async def create_adsense_account(user_id: str, data: dict = None):
         )
 
 
+@app.post("/adsense-code-capture/{user_id}")
+async def capture_adsense_codes(user_id: str, data: dict = None):
+    """
+    Endpoint para capturar os códigos de verificação do AdSense (pub-ID e snippet ads.txt).
+    Este endpoint deve ser chamado após a criação da conta AdSense.
+
+    Parâmetros:
+    - user_id: ID do perfil do AdsPower a ser utilizado
+
+    Corpo da requisição (JSON):
+    {
+        "website_url": "https://example.com",  # URL do site para associar aos códigos
+        "headless": false,  # opcional
+        "previous_job_id": "job-uuid"  # opcional - ID do job de criação da conta
+    }
+
+    Resposta:
+    {
+        "success": true,
+        "job_id": "job-uuid",
+        "status": "pending",
+        "message": "Processo de captura de códigos iniciado"
+    }
+    """
+    try:
+        # Verificar se o perfil existe
+        if not user_id:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "error": "ID do perfil não fornecido",
+                    "error_code": "MISSING_USER_ID"
+                }
+            )
+
+        # Garantir que data seja um dicionário válido
+        if data is None:
+            data = {}
+
+        # Validar dados obrigatórios
+        if not data.get('website_url'):
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "error": "URL do site não fornecida",
+                    "error_code": "MISSING_WEBSITE_URL"
+                }
+            )
+
+        # Gerar um job_id único
+        job_id = str(uuid.uuid4())
+
+        # Criar dados do job
+        job_data = {
+            "job_id": job_id,
+            "user_id": user_id,
+            "status": "pending",
+            "created_at": time.time(),
+            "website_url": data.get('website_url'),
+            "headless": data.get('headless', False),
+            "message": "Processo de captura de códigos de verificação iniciado",
+            "previous_job_id": data.get('previous_job_id')
+        }
+
+        # Salvar dados do job em arquivo
+        job_file = os.path.join(JOBS_DIR, f"{job_id}.json")
+        with open(job_file, "w") as f:
+            json.dump(job_data, f, indent=4)
+
+        # Iniciar processo em uma thread separada
+        Thread(
+            target=process_adsense_code_capture,
+            args=(job_id, user_id, data),
+            daemon=True
+        ).start()
+
+        logger.info(
+            f"[ADSENSE] Job {job_id} iniciado para captura de códigos no perfil {user_id}")
+
+        return {
+            "success": True,
+            "job_id": job_id,
+            "user_id": user_id,
+            "status": "pending",
+            "message": "Processo de captura de códigos de verificação iniciado",
+            "status_url": f"/adsense-job-status/{job_id}"
+        }
+
+    except Exception as e:
+        logger.error(
+            f"[ERRO] Erro ao iniciar captura de códigos: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e),
+                "error_code": "ADSENSE_CODE_CAPTURE_ERROR"
+            }
+        )
+
+
 @app.get("/adsense-job-status/{job_id}")
 async def get_adsense_job_status(job_id: str):
     """Endpoint para verificar o status de um job de criação de conta AdSense."""
@@ -805,6 +928,7 @@ async def get_adsense_job_status(job_id: str):
         job_file = os.path.join(JOBS_DIR, f"{job_id}.json")
 
         if not os.path.exists(job_file):
+            logger.warning(f"[AVISO] Job não encontrado: {job_id}")
             raise HTTPException(
                 status_code=404,
                 detail=f"Job não encontrado: {job_id}"
@@ -813,6 +937,38 @@ async def get_adsense_job_status(job_id: str):
         # Carregar dados do job
         with open(job_file) as f:
             job_data = json.load(f)
+
+        # Adicionar logs para debug
+        logger.info(f"[DEBUG-STATUS] Job {job_id} carregado com sucesso")
+        if "website_url" in job_data:
+            logger.info(
+                f"[DEBUG-STATUS] Job {job_id} tem website_url: {job_data.get('website_url')}")
+        if "result" in job_data and "site_url" in job_data.get("result", {}):
+            logger.info(
+                f"[DEBUG-STATUS] Job {job_id} tem result.site_url: {job_data.get('result', {}).get('site_url')}")
+
+        # Remover o campo website_url quando o job estiver completo e tiver informações no result
+        if job_data.get("status") == "completed" and "result" in job_data and job_data.get("result", {}).get("site_url"):
+            if "website_url" in job_data:
+                logger.info(
+                    f"[DEBUG] Removendo website_url do job {job_id}")
+                job_data.pop("website_url", None)
+
+        # Garantir que a result.site_url corresponda à website_url original
+        if "result" in job_data and "site_url" in job_data.get("result", {}) and "website_url" in job_data:
+            original_url = job_data.get("website_url")
+            result_url = job_data.get("result", {}).get("site_url")
+
+            if original_url != result_url and "meusite.com.br" in result_url:
+                logger.warning(
+                    f"[AVISO] Corrigindo URL no resultado: {result_url} -> {original_url}")
+                job_data["result"]["site_url"] = original_url
+
+                # Salvar o arquivo atualizado
+                with open(job_file, "w") as f:
+                    json.dump(job_data, f, indent=2)
+
+                logger.info(f"[DEBUG-STATUS] Job {job_id} corrigido e salvo")
 
         return job_data
 
@@ -1301,8 +1457,12 @@ def process_adsense_code_capture(job_id, user_id, data):
                 return
 
             # Criar objeto de website com os dados recebidos
+            website_url = data.get('website_url')
+            logger.info(
+                f"[DEBUG] URL do site recebida na requisição: {website_url}")
+
             website_data = {
-                "website_url": data.get('website_url')
+                "website_url": website_url
             }
 
             # Inicializar o capturador de códigos
@@ -1322,10 +1482,20 @@ def process_adsense_code_capture(job_id, user_id, data):
             if success:
                 # Obter os dados capturados
                 captured_data = code_injector.get_captured_data()
+                logger.info(f"[DEBUG] Dados capturados: {captured_data}")
+
+                # Obter a URL do site com prioridade para a URL real capturada da página
+                # Usar URL capturada da página
+                site_url = captured_data.get("website_url")
+                if not site_url:
+                    # Fallback para URL da requisição
+                    site_url = data.get("website_url")
+
+                logger.info(f"[DEBUG] URL final escolhida: {site_url}")
 
                 # Criar resposta formatada conforme solicitado
                 result_data = {
-                    "site_url": data.get("website_url"),
+                    "site_url": site_url,  # Usar URL real capturada
                     "pub": captured_data.get("pub", ""),
                     "direct": captured_data.get("direct", ""),
                     # Manter campos originais para compatibilidade
@@ -1333,6 +1503,8 @@ def process_adsense_code_capture(job_id, user_id, data):
                     "verification_code": captured_data.get("verification_code", ""),
                     "capture_time": time.strftime("%Y-%m-%d %H:%M:%S")
                 }
+
+                logger.info(f"[DEBUG] Resultado final: {result_data}")
 
                 update_job_status(
                     job_id=job_id,
@@ -1354,11 +1526,12 @@ def process_adsense_code_capture(job_id, user_id, data):
 
             # Fechar o navegador ao finalizar
             try:
-                browser_manager.close_browser()
-                logger.info(f"[ADSENSE] Navegador fechado com sucesso")
+                # Não fechamos o navegador para permitir operações adicionais
+                logger.info(
+                    f"[ADSENSE] Navegador mantido aberto para operações adicionais")
             except Exception as close_e:
                 logger.warning(
-                    f"[AVISO] Erro ao fechar navegador: {str(close_e)}")
+                    f"[AVISO] Erro ao processar: {str(close_e)}")
 
         except Exception as e:
             update_job_status(
@@ -1370,10 +1543,11 @@ def process_adsense_code_capture(job_id, user_id, data):
             logger.error(
                 f"[ERRO] Erro ao capturar códigos do AdSense: {str(e)}")
 
-            # Tentar fechar o navegador em caso de erro
+            # Tentar fechar o navegador em caso de erro - também removido
             try:
-                browser_manager.close_browser()
-                logger.info(f"[ADSENSE] Navegador fechado após erro")
+                # browser_manager.close_browser()
+                logger.info(
+                    f"[ADSENSE] Navegador mantido aberto após erro para depuração")
             except Exception:
                 pass
 
@@ -1391,57 +1565,263 @@ def process_adsense_code_capture(job_id, user_id, data):
             pass
 
 
-class AdsPowerManager:
-    def __init__(self, base_url: str, api_key: str):
-        self.base_url = base_url.rstrip('/')
-        self.api_key = api_key
-        self.headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
+def process_adsense_verify_account(job_id, user_id, data):
+    """
+    Processa a verificação de uma conta AdSense em background.
+    Clica no botão de verificação para confirmar a associação do site.
 
-    def check_api_health(self, force_check: bool = False) -> bool:
-        """
-        Verifica se a API do AdsPower está respondendo.
+    Args:
+        job_id: ID do job
+        user_id: ID do perfil do AdsPower
+        data: Dados para verificação da conta
+    """
+    try:
+        # Atualizar status do job
+        update_job_status(
+            job_id=job_id,
+            status="processing",
+            message="Iniciando processo de verificação da conta AdSense"
+        )
 
-        Args:
-            force_check: Se True, força uma nova verificação ignorando cache
-
-        Returns:
-            bool: True se a API está respondendo, False caso contrário
-        """
+        # Importar classes necessárias
         try:
-            # Endpoint para listar grupos (endpoint leve para verificação)
-            url = f"{self.base_url}/api/v1/group/list"
+            from automations.adsense_creator.verify_account import AdSenseAccountVerifier
+            from powerads_api.browser_manager import BrowserManager, BrowserConfig
+            from powerads_api.ads_power_manager import AdsPowerManager
+            import requests
+        except ImportError as e:
+            update_job_status(
+                job_id=job_id,
+                status="failed",
+                message=f"Erro ao importar dependências: {str(e)}",
+                error_details=f"Módulo não encontrado: {str(e)}. Verifique se o pacote adsense_creator está instalado."
+            )
+            logger.error(
+                f"[ERRO] Erro ao importar módulos para verificação de conta AdSense: {str(e)}")
+            return
 
+        # Obter credenciais
+        base_url = get_credential("PA_BASE_URL")
+        api_key = get_credential("PA_API_KEY")
+
+        if not base_url or not api_key:
+            update_job_status(
+                job_id=job_id,
+                status="failed",
+                message="Credenciais do AdsPower não configuradas",
+                error_details="As credenciais do AdsPower (PA_BASE_URL e/ou PA_API_KEY) não estão configuradas."
+            )
+            return
+
+        # Verificar se o perfil existe através de uma chamada API direta
+        try:
+            headers = {"Authorization": f"Bearer {api_key}"}
             response = requests.get(
-                url,
-                headers=self.headers,
-                timeout=10
+                f"{base_url}/api/v1/user/list", headers=headers, timeout=30)
+
+            if response.status_code == 200:
+                api_data = response.json()
+                if api_data.get("code") == 0 and "list" in api_data.get("data", {}):
+                    profiles = api_data["data"]["list"]
+                    profile_exists = any(profile.get(
+                        "user_id") == user_id for profile in profiles)
+
+                    if not profile_exists:
+                        logger.warning(
+                            f"Perfil {user_id} não encontrado na lista de perfis. Perfis disponíveis: {[p.get('user_id') for p in profiles]}")
+                        update_job_status(
+                            job_id=job_id,
+                            status="failed",
+                            message=f"Perfil {user_id} não encontrado",
+                            error_details=f"O perfil com ID {user_id} não foi encontrado na lista de perfis do AdsPower. Verifique se o perfil existe e está ativo."
+                        )
+                        return
+                    else:
+                        logger.info(
+                            f"Perfil {user_id} encontrado. Continuando com a verificação da conta.")
+                else:
+                    logger.error(
+                        f"Resposta inválida da API ao listar perfis: {api_data}")
+                    update_job_status(
+                        job_id=job_id,
+                        status="failed",
+                        message="Falha ao verificar se o perfil existe",
+                        error_details=f"Resposta inválida da API AdsPower: {api_data}"
+                    )
+                    return
+            else:
+                logger.error(
+                    f"Falha ao consultar API do AdsPower: Status code {response.status_code}")
+                update_job_status(
+                    job_id=job_id,
+                    status="failed",
+                    message=f"Falha ao verificar perfil: Status code {response.status_code}",
+                    error_details=f"A API do AdsPower retornou status code {response.status_code} ao tentar listar perfis."
+                )
+                return
+        except Exception as e:
+            logger.error(f"Erro na requisição ao verificar perfil: {str(e)}")
+            update_job_status(
+                job_id=job_id,
+                status="failed",
+                message=f"Erro ao verificar perfil: {str(e)}",
+                error_details=f"Ocorreu um erro ao tentar verificar se o perfil existe: {str(e)}"
+            )
+            return
+
+        # Configurar browser manager
+        browser_config = BrowserConfig(
+            headless=data.get('headless', False),
+            max_wait_time=data.get('max_wait_time', 60)
+        )
+
+        try:
+            adspower_manager = AdsPowerManager(base_url, api_key)
+            browser_manager = BrowserManager(adspower_manager)
+            browser_manager.set_config(browser_config)
+
+            # Verificar se o AdsPower está acessível
+            if not adspower_manager.check_api_health(force_check=True):
+                update_job_status(
+                    job_id=job_id,
+                    status="failed",
+                    message="Não foi possível conectar ao AdsPower",
+                    error_details="Falha na conexão com a API do AdsPower. Verifique se o serviço está em execução."
+                )
+                return
+
+            # Inicializar o browser
+            update_job_status(
+                job_id=job_id,
+                status="processing",
+                message="Inicializando o navegador para verificação da conta"
             )
 
-            return response.status_code == 200
+            if not browser_manager.ensure_browser_ready(user_id):
+                update_job_status(
+                    job_id=job_id,
+                    status="failed",
+                    message="Falha ao inicializar o navegador",
+                    error_details="Não foi possível inicializar o navegador para o perfil especificado."
+                )
+                return
+
+            driver = browser_manager.get_driver()
+            if not driver:
+                update_job_status(
+                    job_id=job_id,
+                    status="failed",
+                    message="Driver do navegador não disponível",
+                    error_details="Não foi possível obter o driver do navegador após inicialização."
+                )
+                return
+
+            # Inicializar o verificador de conta
+            verifier = AdSenseAccountVerifier(driver)
+
+            # Obter os parâmetros da requisição
+            pub_id = data.get('pub_id')
+            site_url = data.get('site_url')
+
+            # Log dos parâmetros recebidos
+            logger.info(
+                f"[INFO] Parâmetros para verificação - pub_id: {pub_id}, site_url: {site_url}")
+
+            # Executar a verificação
+            update_job_status(
+                job_id=job_id,
+                status="processing",
+                message="Executando verificação da conta AdSense"
+            )
+
+            # Usar o novo método verify_site com os parâmetros fornecidos
+            if pub_id and site_url:
+                logger.info(
+                    f"[INFO] Iniciando verificação com navegação específica para URL do site {site_url}")
+                success = verifier.verify_site(
+                    pub_id=pub_id, site_url=site_url)
+            else:
+                # Possibilitar usar um XPath personalizado como fallback
+                xpath = data.get('verification_xpath')
+                if xpath:
+                    logger.info(f"[INFO] Usando XPath personalizado: {xpath}")
+                    success = verifier.click_verification_button(xpath)
+                else:
+                    # Usar o método padrão que já inclui o XPath
+                    logger.info("[INFO] Usando método padrão de verificação")
+                    success = verifier.verify_and_close()
+
+            if success:
+                update_job_status(
+                    job_id=job_id,
+                    status="completed",
+                    message="Conta AdSense verificada com sucesso",
+                    result={
+                        "verified": True,
+                        "verification_time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                        "pub_id": pub_id,
+                        "site_url": site_url
+                    }
+                )
+                logger.info(
+                    f"[ADSENSE] Conta verificada com sucesso para o job {job_id}")
+            else:
+                update_job_status(
+                    job_id=job_id,
+                    status="failed",
+                    message="Falha ao verificar conta AdSense",
+                    error_details="O processo de verificação falhou. Verifique os logs para mais detalhes."
+                )
+                logger.error(
+                    f"[ADSENSE] Falha ao verificar conta para o job {job_id}")
+
+            # Não fechamos o navegador para permitir operações adicionais
+            logger.info(
+                f"[ADSENSE] Navegador mantido aberto para operações adicionais")
 
         except Exception as e:
-            logger.error(
-                f"[ERRO] Erro ao verificar saúde do AdsPower: {str(e)}")
-            return False
+            update_job_status(
+                job_id=job_id,
+                status="failed",
+                message=f"Erro durante verificação da conta: {str(e)}",
+                error_details=f"Exceção: {type(e).__name__}: {str(e)}"
+            )
+            logger.error(f"[ERRO] Erro ao verificar conta AdSense: {str(e)}")
+
+            # Não fechamos o navegador para permitir depuração
+            logger.info(
+                f"[ADSENSE] Navegador mantido aberto após erro para depuração")
+
+    except Exception as e:
+        logger.error(
+            f"[ERRO] Erro geral no processamento do job {job_id}: {str(e)}")
+        try:
+            update_job_status(
+                job_id=job_id,
+                status="failed",
+                message=f"Erro não tratado: {str(e)}",
+                error_details=f"Exceção não tratada: {type(e).__name__}: {str(e)}"
+            )
+        except:
+            pass
 
 
-@app.post("/adsense-code-capture/{user_id}")
-async def capture_adsense_codes(user_id: str, data: dict = None):
+@app.post("/adsense-verify-account/{user_id}")
+async def verify_adsense_account(user_id: str, data: dict = None):
     """
-    Endpoint para capturar os códigos de verificação do AdSense (pub-ID e snippet ads.txt).
-    Este endpoint deve ser chamado após a criação da conta AdSense.
+    Endpoint para verificar uma conta AdSense, clicando no botão de verificação.
+    Este endpoint deve ser chamado após a criação e configuração da conta AdSense.
 
     Parâmetros:
     - user_id: ID do perfil do AdsPower a ser utilizado
 
     Corpo da requisição (JSON):
     {
-        "website_url": "https://example.com",  # URL do site para associar aos códigos
-        "headless": false,  # opcional
-        "previous_job_id": "job-uuid"  # opcional - ID do job de criação da conta
+        "pub_id": "5586201132431151",        # ID do publisher (sem 'pub-')
+        "site_url": "fulled.com.br",         # URL do site a ser verificado
+        "headless": false,                    # opcional - executar em modo headless
+        "verification_xpath": "xpath_string", # opcional - XPath personalizado para o botão de verificação (usado apenas se pub_id e site_url não forem fornecidos)
+        "max_wait_time": 60                   # opcional - tempo máximo de espera em segundos
     }
 
     Resposta:
@@ -1449,7 +1829,7 @@ async def capture_adsense_codes(user_id: str, data: dict = None):
         "success": true,
         "job_id": "job-uuid",
         "status": "pending",
-        "message": "Processo de captura de códigos iniciado"
+        "message": "Processo de verificação de conta iniciado"
     }
     """
     try:
@@ -1468,17 +1848,6 @@ async def capture_adsense_codes(user_id: str, data: dict = None):
         if data is None:
             data = {}
 
-        # Validar dados obrigatórios
-        if not data.get('website_url'):
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "success": False,
-                    "error": "URL do site não fornecida",
-                    "error_code": "MISSING_WEBSITE_URL"
-                }
-            )
-
         # Gerar um job_id único
         job_id = str(uuid.uuid4())
 
@@ -1488,11 +1857,17 @@ async def capture_adsense_codes(user_id: str, data: dict = None):
             "user_id": user_id,
             "status": "pending",
             "created_at": time.time(),
-            "website_url": data.get('website_url'),
+            "pub_id": data.get('pub_id'),  # Novo campo
+            "site_url": data.get('site_url'),  # Novo campo
             "headless": data.get('headless', False),
-            "previous_job_id": data.get('previous_job_id'),
-            "message": "Processo de captura de códigos do AdSense iniciado"
+            "verification_xpath": data.get('verification_xpath'),
+            "max_wait_time": data.get('max_wait_time', 60),
+            "message": "Processo de verificação de conta AdSense iniciado"
         }
+
+        # Adicionar um log para verificar os dados recebidos
+        logger.info(
+            f"[ADSENSE] Dados recebidos para verificação de conta: pub_id={data.get('pub_id')}, site_url={data.get('site_url')}")
 
         # Salvar dados do job em arquivo
         job_file = os.path.join(JOBS_DIR, f"{job_id}.json")
@@ -1501,32 +1876,32 @@ async def capture_adsense_codes(user_id: str, data: dict = None):
 
         # Iniciar processo em uma thread separada
         Thread(
-            target=process_adsense_code_capture,
+            target=process_adsense_verify_account,
             args=(job_id, user_id, data),
             daemon=True
         ).start()
 
         logger.info(
-            f"[ADSENSE] Job {job_id} iniciado para captura de códigos do AdSense no perfil {user_id}")
+            f"[ADSENSE] Job {job_id} iniciado para verificação de conta AdSense no perfil {user_id}")
 
         return {
             "success": True,
             "job_id": job_id,
             "user_id": user_id,
             "status": "pending",
-            "message": "Processo de captura de códigos do AdSense iniciado",
+            "message": "Processo de verificação de conta AdSense iniciado",
             "status_url": f"/adsense-job-status/{job_id}"
         }
 
     except Exception as e:
         logger.error(
-            f"[ERRO] Erro ao iniciar captura de códigos do AdSense: {str(e)}")
+            f"[ERRO] Erro ao iniciar verificação de conta AdSense: {str(e)}")
         return JSONResponse(
             status_code=500,
             content={
                 "success": False,
                 "error": str(e),
-                "error_code": "ADSENSE_CODE_CAPTURE_ERROR"
+                "error_code": "ADSENSE_VERIFY_ACCOUNT_ERROR"
             }
         )
 

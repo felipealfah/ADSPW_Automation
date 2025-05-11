@@ -643,6 +643,48 @@ swagger_spec = {
                     }
                 }
             }
+        },
+        "/adsense-verify-account/{user_id}": {
+            "post": {
+                "summary": "Verificar conta AdSense",
+                "description": "Endpoint Flask para verificar uma conta AdSense, clicando no botão de verificação. Este endpoint chama a API FastAPI localizada em server.py.",
+                "produces": ["application/json"],
+                "parameters": [
+                    {
+                        "name": "user_id",
+                        "in": "path",
+                        "description": "ID do perfil do AdsPower a ser utilizado",
+                        "required": True,
+                        "type": "string"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Processo de verificação iniciado",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "success": {"type": "boolean"},
+                                "job_id": {"type": "string"},
+                                "status": {"type": "string"},
+                                "message": {"type": "string"},
+                                "status_url": {"type": "string"}
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Dados incompletos",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "success": {"type": "boolean"},
+                                "error": {"type": "string"},
+                                "error_code": {"type": "string"}
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -2176,6 +2218,12 @@ def n8n_help():
                 "method": "GET",
                 "description": "Verifica o status de um job de AdSense",
                 "documentation": "Retorna o status atual e os resultados quando concluído"
+            },
+            {
+                "path": "/adsense-verify-account/<user_id>",
+                "method": "POST",
+                "description": "Verificar conta AdSense",
+                "documentation": "Endpoint Flask para verificar uma conta AdSense, clicando no botão de verificação. Este endpoint chama a API FastAPI localizada em server.py."
             }
         ],
         "exemplos_n8n": {
@@ -2568,7 +2616,7 @@ def create_adsense_account(user_id):
                 "error_code": "MISSING_USER_ID"
             }), 400
 
-        # Recuperar parâmetros do corpo da requisição
+        # Obter dados da requisição
         data = request.json or {}
 
         # Validar dados obrigatórios
@@ -2586,52 +2634,101 @@ def create_adsense_account(user_id):
                 "error_code": "MISSING_COUNTRY"
             }), 400
 
-        # Gerar um job_id único
-        job_id = str(uuid.uuid4())
+        # Enviar requisição para o servidor FastAPI
+        fastapi_url = f"{FASTAPI_BASE_URL}/adsense-creator/{user_id}"
+        response = requests.post(fastapi_url, json=data)
 
-        # Criar dados do job
-        job_data = {
-            "job_id": job_id,
-            "user_id": user_id,
-            "status": "pending",
-            "created_at": time.time(),
-            "website_url": data.get('website_url'),
-            "country": data.get('country'),
-            "headless": data.get('headless', False),
-            "message": "Processo de criação de conta AdSense iniciado"
-        }
-
-        # Salvar dados do job em arquivo
-        job_file = os.path.join(JOBS_DIR, f"{job_id}.json")
-        with open(job_file, "w") as f:
-            json.dump(job_data, f, indent=4)
-
-        # Iniciar processo em uma thread separada
-        Thread(
-            target=process_adsense_creation,
-            args=(job_id, user_id, data),
-            daemon=True
-        ).start()
-
-        logger.info(
-            f"[ADSENSE] Job {job_id} iniciado para criação de conta AdSense no perfil {user_id}")
-
-        return jsonify({
-            "success": True,
-            "job_id": job_id,
-            "user_id": user_id,
-            "status": "pending",
-            "message": "Processo de criação de conta AdSense iniciado",
-            "status_url": f"/adsense-job-status/{job_id}"
-        })
+        # Converter e retornar a resposta do FastAPI
+        try:
+            response_data = response.json()
+            return jsonify(response_data), response.status_code
+        except Exception as e:
+            logger.error(
+                f"[ERRO] Erro ao processar resposta do FastAPI: {str(e)}")
+            return jsonify({
+                "success": False,
+                "error": f"Erro de comunicação: {str(e)}",
+                "error_code": "API_COMMUNICATION_ERROR"
+            }), 500
 
     except Exception as e:
         logger.error(
-            f"[ERRO] Erro ao iniciar criação de conta AdSense: {str(e)}")
+            f"[ERRO] Erro ao processar solicitação: {str(e)}")
         return jsonify({
             "success": False,
-            "error": str(e),
-            "error_code": "ADSENSE_START_ERROR"
+            "error": f"Erro interno: {str(e)}",
+            "error_code": "INTERNAL_ERROR"
+        }), 500
+
+
+@app.route('/adsense-code-capture/<user_id>', methods=['POST'])
+def capture_adsense_codes(user_id):
+    """
+    Endpoint para capturar os códigos de verificação do AdSense (pub-ID e snippet ads.txt).
+    Este endpoint deve ser chamado após a criação da conta AdSense.
+
+    Parâmetros:
+    - user_id: ID do perfil do AdsPower a ser utilizado
+
+    Corpo da requisição (JSON):
+    {
+        "website_url": "https://example.com",  # URL do site para associar aos códigos
+        "headless": false,  # opcional
+        "previous_job_id": "job-uuid"  # opcional - ID do job de criação da conta
+    }
+
+    Resposta:
+    {
+        "success": true,
+        "job_id": "job-uuid",
+        "status": "pending",
+        "message": "Processo de captura de códigos iniciado"
+    }
+    """
+    try:
+        # Verificar se o perfil existe
+        if not user_id:
+            return jsonify({
+                "success": False,
+                "error": "ID do perfil não fornecido",
+                "error_code": "MISSING_USER_ID"
+            }), 400
+
+        # Obter dados da requisição
+        data = request.json or {}
+
+        # Validar dados obrigatórios
+        if not data.get('website_url'):
+            return jsonify({
+                "success": False,
+                "error": "URL do site não fornecida",
+                "error_code": "MISSING_WEBSITE_URL"
+            }), 400
+
+        # Enviar requisição para o servidor FastAPI
+        fastapi_url = f"{FASTAPI_BASE_URL}/adsense-code-capture/{user_id}"
+        response = requests.post(fastapi_url, json=data)
+
+        # Converter e retornar a resposta do FastAPI
+        try:
+            response_data = response.json()
+            return jsonify(response_data), response.status_code
+        except Exception as e:
+            logger.error(
+                f"[ERRO] Erro ao processar resposta do FastAPI: {str(e)}")
+            return jsonify({
+                "success": False,
+                "error": f"Erro de comunicação: {str(e)}",
+                "error_code": "API_COMMUNICATION_ERROR"
+            }), 500
+
+    except Exception as e:
+        logger.error(
+            f"[ERRO] Erro ao processar solicitação de captura de códigos: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": f"Erro interno: {str(e)}",
+            "error_code": "INTERNAL_ERROR"
         }), 500
 
 
@@ -2800,7 +2897,8 @@ def process_adsense_creation(job_id, user_id, data):
             # Criar objeto de conta com os dados recebidos
             account_data = {
                 "website_url": data.get('website_url'),
-                "country": data.get('country')
+                "country": data.get('country'),
+                "capture_codes": False  # Desativar a captura de códigos neste endpoint
             }
 
             # Inicializar o criador de AdSense
@@ -2860,6 +2958,138 @@ def process_adsense_creation(job_id, user_id, data):
             )
         except:
             pass
+
+
+@app.route('/adsense-verify-account/<user_id>', methods=['POST'])
+def verify_adsense_account(user_id):
+    """
+    Endpoint Flask para verificar uma conta AdSense, clicando no botão de verificação.
+    Este endpoint chama a API FastAPI localizada em server.py.
+
+    Parâmetros:
+    - user_id: ID do perfil do AdsPower a ser utilizado
+
+    Corpo da requisição (JSON):
+    {
+        "pub_id": "5586201132431151",        # ID do publisher (sem 'pub-')
+        "site_url": "fulled.com.br",         # URL do site a ser verificado
+        "headless": false,                    # opcional - executar em modo headless
+        "verification_xpath": "xpath_string", # opcional - XPath personalizado para o botão de verificação (usado apenas se pub_id e site_url não forem fornecidos)
+        "max_wait_time": 60                   # opcional - tempo máximo de espera em segundos
+    }
+
+    Resposta:
+    {
+        "success": true,
+        "job_id": "job-uuid",
+        "status": "pending",
+        "message": "Processo de verificação de conta iniciado"
+    }
+    """
+    try:
+        # Verificar se o perfil existe
+        if not user_id:
+            return jsonify({
+                "success": False,
+                "error": "ID do perfil não fornecido",
+                "error_code": "MISSING_USER_ID"
+            }), 400
+
+        # Recuperar dados do corpo da requisição
+        data = request.json or {}
+
+        # Adicionar log para diagnóstico
+        logger.info(
+            f"[ADSENSE] Dados recebidos no Flask: pub_id={data.get('pub_id')}, site_url={data.get('site_url')}")
+
+        # Determinar a URL do endpoint FastAPI
+        fastapi_base_url = os.environ.get(
+            "FASTAPI_URL", "http://localhost:5001")
+        fastapi_endpoint = f"{fastapi_base_url}/adsense-verify-account/{user_id}"
+
+        # Chamar o endpoint FastAPI
+        try:
+            logger.info(
+                f"[ADSENSE] Encaminhando requisição para o FastAPI: {fastapi_endpoint}")
+            response = requests.post(fastapi_endpoint, json=data, timeout=30)
+
+            # Retornar a resposta do FastAPI
+            return jsonify(response.json()), response.status_code
+
+        except requests.RequestException as e:
+            logger.error(
+                f"[ERRO] Falha ao conectar com a API FastAPI: {str(e)}")
+
+            # Se falhar o redirecionamento para o FastAPI, processar localmente
+            logger.info(
+                f"[ADSENSE] Tentando processar localmente devido a falha no FastAPI")
+
+            # Gerar um job_id único
+            job_id = str(uuid.uuid4())
+
+            # Criar dados do job
+            job_data = {
+                "job_id": job_id,
+                "user_id": user_id,
+                "status": "pending",
+                "created_at": time.time(),
+                "pub_id": data.get('pub_id'),  # Novo campo
+                "site_url": data.get('site_url'),  # Novo campo
+                "headless": data.get('headless', False),
+                "verification_xpath": data.get('verification_xpath'),
+                "max_wait_time": data.get('max_wait_time', 60),
+                "message": "Processo de verificação de conta AdSense iniciado (Flask)"
+            }
+
+            # Salvar dados do job em arquivo
+            job_file = os.path.join(JOBS_DIR, f"{job_id}.json")
+            with open(job_file, "w") as f:
+                json.dump(job_data, f, indent=4)
+
+            # Iniciar processo em uma thread separada
+            # Como não temos a função process_adsense_verify_account no Flask,
+            # vamos usar uma função temporária que avisa sobre isso
+            def process_temp(job_id, user_id, data):
+                try:
+                    with open(job_file, "r") as f:
+                        temp_data = json.load(f)
+
+                    temp_data["status"] = "failed"
+                    temp_data["message"] = "O processamento direto no Flask não está implementado"
+                    temp_data["error_details"] = "Este endpoint deve ser processado pelo FastAPI. A chamada direta ao Flask é apenas para compatibilidade."
+
+                    with open(job_file, "w") as f:
+                        json.dump(temp_data, f, indent=4)
+
+                    logger.error(
+                        f"[ADSENSE] Tentativa de executar verificação diretamente no Flask para job {job_id}")
+                except Exception as ex:
+                    logger.error(f"[ERRO] Falha no job temporário: {str(ex)}")
+
+            Thread(target=process_temp, args=(
+                job_id, user_id, data), daemon=True).start()
+
+            logger.info(
+                f"[ADSENSE] Job {job_id} iniciado (modo temporário/compatibilidade) para verificação AdSense no perfil {user_id}")
+
+            return jsonify({
+                "success": True,
+                "job_id": job_id,
+                "user_id": user_id,
+                "status": "pending",
+                "message": "Processo de verificação iniciado em modo de compatibilidade",
+                "status_url": f"/adsense-job-status/{job_id}",
+                "warning": "O FastAPI não está acessível. Esta é uma resposta de compatibilidade."
+            })
+
+    except Exception as e:
+        logger.error(
+            f"[ERRO] Erro ao iniciar verificação de conta AdSense: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "error_code": "ADSENSE_VERIFY_ACCOUNT_ERROR"
+        }), 500
 
 
 if __name__ == '__main__':
