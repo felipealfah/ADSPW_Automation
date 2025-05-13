@@ -1,8 +1,12 @@
 import random
 import json
 import os
+import logging
 from faker import Faker
 import calendar
+
+# Configurar logging
+logger = logging.getLogger(__name__)
 
 # Criar instância do Faker para dados fictícios
 fake = Faker()
@@ -13,13 +17,16 @@ CREDENTIALS_PATH = "credentials/gmail.json"
 # Criar pasta credenciais se não existir
 os.makedirs(os.path.dirname(CREDENTIALS_PATH), exist_ok=True)
 
+
 def generate_first_name():
     """Gera um primeiro nome aleatório"""
     return fake.first_name()
 
+
 def generate_last_name():
     """Gera um sobrenome aleatório"""
     return fake.last_name()
+
 
 def generate_birth_date():
     """Gera uma data de nascimento aleatória"""
@@ -29,15 +36,18 @@ def generate_birth_date():
     birth_year = random.randint(1985, 2005)  # Faixa de idade válida para Gmail
     return birth_month, birth_day, birth_year
 
+
 def generate_username(first_name, last_name, birth_month, birth_year):
     """Gera um nome de usuário baseado no nome, sobrenome e ano de nascimento"""
     month_number = str(list(calendar.month_name).index(birth_month)).zfill(2)
     username = f"{first_name.lower()}{last_name.lower()}{month_number}{birth_year}"
     return username
 
+
 def generate_password():
     """Gera uma senha aleatória segura"""
     return fake.password(length=12, special_chars=True, digits=True, upper_case=True, lower_case=True)
+
 
 def save_credentials(credentials):
     """Salva as credenciais em um arquivo JSON"""
@@ -55,12 +65,14 @@ def save_credentials(credentials):
     except Exception as e:
         print(f"[ERRO] Erro ao salvar credenciais: {e}")
 
+
 def generate_gmail_credentials():
     """Gera todas as credenciais para criar uma conta no Gmail"""
     first_name = generate_first_name()
     last_name = generate_last_name()
     birth_month, birth_day, birth_year = generate_birth_date()
-    username = generate_username(first_name, last_name, birth_month, birth_year)
+    username = generate_username(
+        first_name, last_name, birth_month, birth_year)
     password = generate_password()
 
     credentials = {
@@ -72,14 +84,15 @@ def generate_gmail_credentials():
         "username": username,
         "password": password
     }
-    
+
     return credentials
+
 
 def save_gmail_account(email, password, phone_number, profile_name, account_data=None):
     """
     Salva as credenciais de uma conta Gmail no JSON evitando duplicações.
     Esta função só deve ser chamada após a verificação bem-sucedida do SMS.
-    
+
     Args:
         email (str): Email da conta
         password (str): Senha da conta
@@ -87,12 +100,12 @@ def save_gmail_account(email, password, phone_number, profile_name, account_data
         profile_name (str): Nome do perfil no AdsPower
         account_data (dict, optional): Dados adicionais da conta, incluindo 
                                        country_code, country_name e activation_id
-    
+
     Returns:
         bool: True se as credenciais foram salvas, False caso contrário
     """
     credentials_path = "credentials/gmail.json"
-    
+
     try:
         # Verifica se o arquivo já existe e carrega os dados
         existing_data = []
@@ -105,7 +118,7 @@ def save_gmail_account(email, password, phone_number, profile_name, account_data
                 except json.JSONDecodeError:
                     # Se o arquivo estiver corrompido, começamos com lista vazia
                     existing_data = []
-        
+
         # Criar nova entrada de credenciais com dados básicos
         new_entry = {
             "email": email,
@@ -113,38 +126,39 @@ def save_gmail_account(email, password, phone_number, profile_name, account_data
             "phone": phone_number,
             "profile": profile_name
         }
-        
+
         # Adicionar dados complementares se disponíveis
         if account_data and isinstance(account_data, dict):
             # Adicionar todos os campos extras que possam existir
             for key, value in account_data.items():
                 if key not in new_entry:  # Não sobrescrever campos existentes
                     new_entry[key] = value
-        
+
         # Verificar se o email já existe na lista
         # Usamos uma lista de índices a serem removidos para não modificar a lista durante iteração
         indices_to_remove = []
-        
+
         for i, entry in enumerate(existing_data):
             if entry.get("email") == email:
                 indices_to_remove.append(i)
-                logging.info(f"Encontrada entrada duplicada para {email}. Será substituída.")
-        
+                logger.info(
+                    f"Encontrada entrada duplicada para {email}. Será substituída.")
+
         # Remover as entradas duplicadas (do final para o começo para não afetar índices)
         for index in sorted(indices_to_remove, reverse=True):
             existing_data.pop(index)
-        
+
         # Adicionar nova entrada
         existing_data.append(new_entry)
-        
+
         # Salvar lista atualizada no arquivo JSON
         with open(credentials_path, "w") as file:
             json.dump(existing_data, file, indent=4)
-        
-        logging.info(f"Credenciais para {email} salvas com sucesso em {credentials_path}")
-        return True
-    
-    except Exception as e:
-        logging.error(f"Erro ao salvar credenciais: {e}")
-        return False
 
+        logger.info(
+            f"Credenciais para {email} salvas com sucesso em {credentials_path}")
+        return True
+
+    except Exception as e:
+        logger.error(f"Erro ao salvar credenciais: {e}")
+        return False

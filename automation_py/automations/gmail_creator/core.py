@@ -79,19 +79,24 @@ class GmailCreator:
             logger.error(f"[ERRO] Erro ao inicializar browser: {str(e)}")
             return False
 
-    def create_account(self, user_id: str, phone_params=None):
+    def create_account(self, user_id: str, phone_params=None, recovery_email=None):
         """
         Executa todo o fluxo de criação da conta Gmail.
 
         Args:
             user_id: ID do perfil do AdsPower
             phone_params (dict, optional): Parâmetros para reutilização de números
+            recovery_email (str, optional): Email de recuperação para a conta Gmail
 
         Returns:
             tuple: (sucesso, dados_da_conta)
         """
         try:
             logger.info("[INICIO] Iniciando criação da conta Gmail...")
+
+            if recovery_email:
+                logger.info(
+                    f"[INFO] Email de recuperação fornecido: {recovery_email}")
 
             # Inicializar o browser primeiro
             if not self.initialize_browser(user_id):
@@ -185,8 +190,8 @@ class GmailCreator:
 
                     # Passo 3: Aceitação dos Termos
                     self.state = GmailCreationState.TERMS_ACCEPTANCE
-                    # Inicializar terms_handler
-                    terms_handler = TermsHandler(self.driver)
+                    # Inicializar terms_handler com o email de recuperação
+                    terms_handler = TermsHandler(self.driver, recovery_email)
 
                     # Usar execute_with_retry para maior robustez
                     def accept_terms():
@@ -211,6 +216,10 @@ class GmailCreator:
                         profile_name=self.profile_name,
                         phone_number=phone_number
                     )
+
+                    # Informar que as credenciais serão salvas automaticamente antes do redirecionamento
+                    logger.info(
+                        "[IMPORTANTE] As credenciais serão salvas automaticamente pela classe AccountVerify antes do redirecionamento para o Gmail")
 
                     # Usar execute_with_retry para maior robustez
                     def verify_account():

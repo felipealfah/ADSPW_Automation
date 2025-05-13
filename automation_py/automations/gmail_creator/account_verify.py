@@ -30,22 +30,59 @@ class AccountVerify:
     def verify_account(self) -> bool:
         """Verifica se a conta foi criada com sucesso e retorna o status."""
         try:
-            logger.info("[BUSCA] Verificando se a conta foi criada com sucesso...")
+            logger.info(
+                "[BUSCA] Verificando se a conta foi criada com sucesso...")
             time.sleep(5)
             current_url = self.driver.current_url
+
+            account_created = False
 
             if "myaccount.google.com" in current_url:
                 logger.info(
                     "[OK] Conta criada com sucesso! Redirecionado para Google Account.")
-                success = self._redirect_to_gmail()
-                self.verification_completed = success
-                return success
+                account_created = True
+            else:
+                logger.warning(
+                    "[AVISO] Não foi detectado redirecionamento para Google Account. Verificando manualmente...")
 
-            logger.warning(
-                "[AVISO] Não foi detectado redirecionamento para Google Account. Verificando Gmail manualmente...")
-            success = self._redirect_to_gmail()
-            self.verification_completed = success
-            return success
+                # Verificar elementos que indicam criação bem-sucedida
+                success_indicators = [
+                    "//img[contains(@alt, 'Google')]",
+                    "//a[contains(@href, 'mail.google.com')]",
+                    "//div[contains(text(), 'Sua conta Google foi criada')]",
+                    "//div[contains(text(), 'Your Google Account was created')]",
+                    "//div[contains(text(), 'Se ha creado tu Cuenta de Google')]"
+                ]
+
+                for indicator in success_indicators:
+                    try:
+                        element = WebDriverWait(self.driver, 5).until(
+                            EC.presence_of_element_located(
+                                (By.XPATH, indicator))
+                        )
+                        if element:
+                            logger.info(
+                                f"[OK] Indicador de sucesso encontrado: {indicator}")
+                            account_created = True
+                            break
+                    except:
+                        pass
+
+            if account_created:
+                # IMPORTANTE: Salvar as credenciais ANTES de redirecionar para o Gmail
+                logger.info(
+                    "[IMPORTANTE] Salvando credenciais antes de redirecionar para o Gmail...")
+                self.save_gmail_account()
+
+                # Agora podemos tentar redirecionar para o Gmail
+                success = self._redirect_to_gmail()
+                self.verification_completed = True
+                return True  # Retornamos True mesmo se o redirecionamento falhar, pois a conta foi criada
+            else:
+                logger.error(
+                    "[ERRO] Não foi possível confirmar a criação da conta.")
+                self.verification_completed = False
+                return False
 
         except Exception as e:
             logger.error(f"[ERRO] Erro na verificação da conta: {str(e)}")
@@ -91,38 +128,49 @@ class AccountVerify:
     def save_gmail_account(self) -> bool:
         """Salva as credenciais com validação de dados."""
         try:
-            if not all([self.phone_number, self.profile_name]):
-                logger.error("[ERRO] Dados incompletos para salvar conta")
-                return False
-
-            account_data = self.get_account_data()
-            if not account_data:
-                logger.error("[ERRO] Falha ao obter dados da conta")
-                return False
-
-            # Validar dados críticos
-            if account_data["phone"] == "unknown" or account_data["email"] == "unknown":
-                logger.error("[ERRO] Dados críticos ausentes ou inválidos")
-                return False
-
             # Verificação de flag para evitar salvamentos duplicados
             if self.credentials_saved:
                 logger.info(
                     "⏭ Credenciais já foram salvas anteriormente. Ignorando.")
-                return False
+                return True  # Retornamos True pois já está salvo
 
-            if not self.verification_completed:
-                logger.warning(
-                    "[AVISO] Tentando salvar credenciais sem verificação concluída!")
+            # Validar dados básicos necessários
+            if not all([self.credentials, self.profile_name]):
+                logger.error("[ERRO] Credenciais ou nome do perfil ausentes")
                 return False
 
             # Obter dados formatados da conta
-            email = account_data["email"]
+            email = self.credentials["username"] + "@gmail.com"
+            password = self.credentials["password"]
+
+            # Verificar se temos o número de telefone
+            phone = self.phone_number if self.phone_number else "unknown"
+
+            # Criar dados da conta completos
+            account_data = {
+                "email": email,
+                "password": password,
+                "phone": phone,
+                "profile": self.profile_name,
+                "first_name": self.credentials.get("first_name", ""),
+                "last_name": self.credentials.get("last_name", ""),
+                "creation_date": time.strftime("%Y-%m-%d %H:%M:%S")
+            }
+
+            # Validar dados críticos
+            if not email or not password:
+                logger.error("[ERRO] Email ou senha ausentes")
+                return False
 
             # Salvar diretamente com verificações rigorosas de duplicação
             credentials_path = "credentials/gmail.json"
 
+            # Garantir que o diretório existe
+            os.makedirs(os.path.dirname(credentials_path), exist_ok=True)
+
             # Verificação explícita de duplicidade baseada no conteúdo do arquivo
+            existing_accounts = []
+
             if os.path.exists(credentials_path) and os.path.getsize(credentials_path) > 0:
                 # Verificar manualmente se o email já existe no arquivo
                 try:
@@ -132,7 +180,7 @@ class AccountVerify:
                             logger.warning(
                                 f"[AVISO] Email {email} já existe no arquivo (verificação de string). Ignorando duplicação.")
                             self.credentials_saved = True
-                            return False
+                            return True
 
                         # Verificar com análise JSON
                         if file_content:
@@ -150,49 +198,28 @@ class AccountVerify:
                                     logger.warning(
                                         f"[AVISO] Email {email} já existe no arquivo (verificação JSON). Ignorando duplicação.")
                                     self.credentials_saved = True
-                                    return False
+                                    return True
                 except Exception as e:
                     logger.warning(
                         f"[AVISO] Erro ao verificar duplicação: {str(e)}. Criando novo arquivo.")
                     # Remove arquivo corrompido se houver erro
-                    os.remove(credentials_path)
+                    try:
+                        os.remove(credentials_path)
+                    except:
+                        pass
                     existing_accounts = []
-            else:
-                # Arquivo não existe ou está vazio
-                existing_accounts = []
 
             # Se chegou aqui, precisa adicionar os dados
             try:
-                with open(credentials_path, "a+") as file:
-                    file.seek(0)  # Move para o início para ler conteúdo
-                    content = file.read().strip()
+                # Adicionar à lista existente
+                existing_accounts.append(account_data)
 
-                    if not content:
-                        # Arquivo vazio, inicializa com lista
-                        file.seek(0)
-                        file.truncate()  # Limpa o arquivo
-                        file.write(json.dumps([account_data], indent=4))
-                    else:
-                        # Arquivo existe, adiciona ao final
-                        file.seek(0)  # Move para o início para ler novamente
-                        existing_accounts = json.loads(content)
-
-                        # Verificação final antes de adicionar
-                        if any(account.get("email") == email for account in existing_accounts):
-                            logger.warning(
-                                f"[AVISO] Email {email} já existe no arquivo (verificação final). Ignorando duplicação.")
-                            self.credentials_saved = True
-                            return False
-
-                        existing_accounts.append(account_data)
-
-                        # Reescreve todo o arquivo
-                        file.seek(0)
-                        file.truncate()  # Limpa o arquivo
-                        file.write(json.dumps(existing_accounts, indent=4))
+                # Salvar a lista atualizada
+                with open(credentials_path, "w") as file:
+                    json.dump(existing_accounts, indent=4, fp=file)
 
                 logger.info(
-                    f"[OK] Credenciais salvas com sucesso em {credentials_path}")
+                    f"[OK] Credenciais para {email} salvas com sucesso em {credentials_path}")
                 self.credentials_saved = True
                 return True
 

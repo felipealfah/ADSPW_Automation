@@ -3,6 +3,7 @@ import json
 import requests
 import logging
 from datetime import datetime
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -54,10 +55,13 @@ def create_profile_with_fingerprint(base_url, headers, name, fingerprint_choice,
     if not proxy_config:
         proxy_config = {
             "proxy_type": "http",
-            "proxy_host": "123.0.0.1",  # [PARADA] Altere para um IP de proxy real
+            # [PARADA] Altere para um IP de proxy real
+            "proxy_host": "123.0.0.1",
             "proxy_port": "8080",
-            "proxy_user": "proxyuser",  # [PARADA] Se necessário, altere para um usuário real
-            "proxy_password": "proxypass",  # [PARADA] Se necessário, altere para uma senha real
+            # [PARADA] Se necessário, altere para um usuário real
+            "proxy_user": "proxyuser",
+            # [PARADA] Se necessário, altere para uma senha real
+            "proxy_password": "proxypass",
             "proxy_soft": "luminati"
         }
 
@@ -336,6 +340,78 @@ class ProfileManager:
         except Exception as e:
             logging.error(f"Erro ao obter perfis: {e}")
             return []
+
+    def get_profile_by_id(self, user_id):
+        """
+        Obtém um perfil específico pelo seu ID.
+
+        Args:
+            user_id (str): ID do perfil a ser buscado
+
+        Returns:
+            dict: Dados do perfil encontrado ou None se não encontrado
+        """
+        try:
+            # Primeiro, verificar se temos o perfil no cache
+            if hasattr(self.cache, 'profiles_cache') and self.cache.profiles_cache:
+                cached_profile = self.cache.profiles_cache.get(user_id)
+                if cached_profile:
+                    logging.info(f"Perfil {user_id} encontrado no cache")
+                    return cached_profile
+
+            # Tenta utilizar a API direta para obter um perfil específico
+            import requests
+
+            # URL para obter informações do perfil diretamente
+            url = f"{self.base_url}/api/v1/user/info"
+            params = {"user_id": user_id}
+
+            logging.info(f"Obtendo perfil {user_id} diretamente via API")
+            try:
+                response = requests.get(
+                    url, headers=self.headers, params=params)
+                response.raise_for_status()
+                data = response.json()
+
+                if data.get("code") == 0 and "data" in data:
+                    profile_data = data["data"]
+                    logging.info(f"Perfil {user_id} encontrado via API direta")
+                    return profile_data
+                elif data.get("code") == -1 and "Too many request" in data.get("msg", ""):
+                    logging.warning(
+                        f"Limite de taxa excedido. Aguardando 2 segundos e tentando obter via lista completa.")
+                    # Esperar 2 segundos antes de tentar novamente
+                    time.sleep(2)
+                else:
+                    logging.warning(
+                        f"Resposta da API para perfil {user_id}: {data}")
+            except Exception as e:
+                logging.warning(
+                    f"Erro ao obter perfil diretamente: {e}. Tentando obter via lista completa.")
+                time.sleep(1)  # Esperar 1 segundo antes de tentar novamente
+
+            # Se não conseguir obter diretamente, tenta obter da lista completa
+            # Obter todos os perfis com um atraso para evitar limites de taxa
+            time.sleep(1)  # Pausa para evitar exceder limites de taxa
+            profiles = self.get_all_profiles(force_refresh=True)
+
+            # Encontrar o perfil específico pelo ID
+            profile = next(
+                (p for p in profiles if p.get("user_id") == user_id), None)
+
+            if profile:
+                logging.info(f"Perfil {user_id} encontrado na lista completa")
+                # Adicionar ao cache se disponível
+                if hasattr(self.cache, 'profiles_cache'):
+                    self.cache.profiles_cache[user_id] = profile
+                return profile
+            else:
+                logging.warning(f"Perfil {user_id} não encontrado")
+                return None
+
+        except Exception as e:
+            logging.error(f"Erro ao buscar perfil {user_id}: {str(e)}")
+            return None
 
     def find_deleted_profiles(self):
         """
