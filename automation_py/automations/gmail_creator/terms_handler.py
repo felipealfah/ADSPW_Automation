@@ -64,10 +64,10 @@ class TermsHandler:
             logger.info(" Iniciando processo após verificação de E-mail...")
             time.sleep(3)  # Aguardar carregamento completo da página
 
-            # 1. Primeira etapa: processar email de recuperação na tela de revisão
-            if not self._handle_recovery_email(self.recovery_email):
+            # 1. Primeira etapa: gerenciar email de recuperação
+            if not self._skip_recovery_email():
                 logger.warning(
-                    "[AVISO] Possível problema ao lidar com email de recuperação, mas continuando...")
+                    "[AVISO] Possível problema ao gerenciar email de recuperação, mas continuando...")
             time.sleep(3)  # Aguardar carregamento
 
             # 2. Tela de revisão das informações
@@ -578,50 +578,95 @@ class TermsHandler:
                     "[ERRO] Não foi possível clicar no botão 'Criar conta'")
                 return False
 
-            # Aguardar um momento para verificar se aparece um modal de confirmação
-            logger.info(
-                " Aguardando 2 segundos para verificar se aparece um modal de confirmação...")
-            time.sleep(2)
-
-            # Verificar se há um modal de confirmação e tratá-lo
-            modal_handled = False
-            try:
-                # Verificar se modal apareceu e tratar
-                if self._handle_confirmation_modal():
-                    logger.info(
-                        "[OK] Modal de confirmação tratado com sucesso após checkboxes!")
-                    modal_handled = True
-                else:
-                    logger.info(
-                        "[INFO] Nenhum modal de confirmação detectado após checkboxes, continuando...")
-            except Exception as e:
-                logger.warning(
-                    f"[AVISO] Erro ao verificar modal de confirmação: {str(e)}")
-                # Continuamos o fluxo mesmo com erro
-
             # Aguardar processamento após o clique no botão
             logger.info(" Aguardando processamento após clique no botão...")
             # Tempo mais longo para garantir processamento completo
             time.sleep(7)
+
+            # Verificar se um modal de confirmação apareceu
+            logger.info(
+                " Verificando se um modal de confirmação apareceu após o clique...")
+
+            modal_indicators = [
+                "//button[contains(text(), 'Confirmar')]",
+                "//button[contains(text(), 'Confirm')]",
+                "//button[contains(text(), 'Aceitar')]",
+                "//button[contains(text(), 'Accept')]",
+                "//button[contains(text(), 'OK')]",
+                "//button[contains(text(), 'Continuar')]",
+                "//button[contains(text(), 'Continue')]"
+            ]
+
+            for modal_button in modal_indicators:
+                try:
+                    if self._element_exists(modal_button, timeout=2):
+                        logger.info(
+                            f"[OK] Modal de confirmação detectado! Botão encontrado: {modal_button}")
+                        confirm_button = self.driver.find_element(
+                            By.XPATH, modal_button)
+
+                        # Screenshot antes de clicar no botão de confirmação
+                        self._save_screenshot(
+                            "before_modal_confirmation_click")
+
+                        # Clicar no botão de confirmação
+                        try:
+                            confirm_button.click()
+                            logger.info(
+                                "[OK] Botão de confirmação do modal clicado com sucesso")
+                        except Exception as e:
+                            logger.warning(
+                                f"[AVISO] Falha ao clicar diretamente no botão de confirmação: {str(e)}")
+                            try:
+                                # Tentar via JavaScript
+                                self.driver.execute_script(
+                                    "arguments[0].click();", confirm_button)
+                                logger.info(
+                                    "[OK] Botão de confirmação do modal clicado via JavaScript")
+                            except Exception as e2:
+                                logger.error(
+                                    f"[ERRO] Falha ao clicar no botão de confirmação do modal: {str(e2)}")
+
+                        # Screenshot após clicar no botão de confirmação
+                        self._save_screenshot("after_modal_confirmation_click")
+
+                        # Aguardar processamento
+                        time.sleep(3)
+                        break
+                except Exception as e:
+                    logger.warning(
+                        f"[AVISO] Erro ao verificar botão do modal {modal_button}: {str(e)}")
+
+            # Verificar se há outro modal (às vezes aparece um segundo modal)
+            time.sleep(1)
+            for modal_button in modal_indicators:
+                try:
+                    if self._element_exists(modal_button, timeout=2):
+                        logger.info(
+                            f"[OK] Segundo modal detectado! Clicando em: {modal_button}")
+                        self.driver.find_element(
+                            By.XPATH, modal_button).click()
+                        logger.info(
+                            "[OK] Segundo botão de confirmação clicado")
+                        time.sleep(2)
+                        break
+                except:
+                    pass
+
+            # IMPORTANTE: Verificar se o modal de confirmação foi tratado corretamente
+            # Tentar tratar com o método existente para confirmação modal
+            try:
+                logger.info(" Tentando tratar modal com método específico...")
+                self._handle_confirmation_modal()
+            except Exception as e:
+                logger.warning(
+                    f"[AVISO] Erro ao tratar modal com método específico: {str(e)}")
 
             # Verificar se ainda estamos na mesma tela
             for area_xpath in specific_checkboxes:
                 if self._element_exists(area_xpath, timeout=2):
                     logger.error(
                         "[ERRO] Ainda estamos na tela de checkboxes. O processo não avançou após o clique no botão.")
-
-                    # Verificar novamente o estado dos checkboxes
-                    for checkbox in specific_checkboxes:
-                        try:
-                            element = self.driver.find_element(
-                                By.XPATH, checkbox)
-                            is_checked = element.get_attribute(
-                                "aria-checked") == "true"
-                            state = "marcado" if is_checked else "desmarcado"
-                            logger.info(
-                                f"[GRAFICO] Estado atual do checkbox: {state}")
-                        except:
-                            pass
 
                     # Tentar uma última vez com mais precisão
                     try:
@@ -631,24 +676,6 @@ class TermsHandler:
                         if exact_button.is_displayed() and exact_button.is_enabled():
                             logger.warning(
                                 "[AVISO] Tentando último recurso: clique em botão exato 'Criar conta'")
-
-                            # Garantir que os checkboxes estão marcados
-                            for checkbox in specific_checkboxes:
-                                try:
-                                    element = self.driver.find_element(
-                                        By.XPATH, checkbox)
-                                    is_checked = element.get_attribute(
-                                        "aria-checked") == "true"
-                                    if not is_checked:
-                                        self.driver.execute_script(
-                                            "arguments[0].click();", element)
-                                        logger.info(
-                                            f"[OK] Remarcando checkbox antes da última tentativa")
-                                except:
-                                    pass
-
-                            # Dar tempo para processar os cliques
-                            time.sleep(1)
 
                             # Scrollar até o botão
                             self.driver.execute_script(
@@ -663,34 +690,10 @@ class TermsHandler:
                             self._save_screenshot(
                                 "after_final_attempt_button_click")
 
-                            # Aguardar 2 segundos para verificar novamente se aparece modal
-                            time.sleep(2)
-                            if self._handle_confirmation_modal():
-                                logger.info(
-                                    "[OK] Modal tratado com sucesso após última tentativa!")
-                                modal_handled = True
-
                             time.sleep(5)
-
-                            # Verificar se ainda estamos na mesma tela novamente
-                            still_on_page = False
-                            for check_xpath in specific_checkboxes:
-                                if self._element_exists(check_xpath, timeout=1):
-                                    still_on_page = True
-                                    break
-
-                            if still_on_page:
-                                logger.error(
-                                    "[ERRO] Ainda estamos na tela de checkboxes após última tentativa.")
-                                self._save_screenshot("failed_final_attempt")
-                                return False
-                            else:
-                                logger.info(
-                                    "[OK] Última tentativa bem-sucedida!")
                     except Exception as e:
                         logger.error(
                             f"[ERRO] Falha na última tentativa: {str(e)}")
-                        self._save_screenshot("failed_last_attempt")
                         return False
 
             # Verificar se um dos elementos após a criação da conta está presente
@@ -759,26 +762,150 @@ class TermsHandler:
             # Esperar um pouco para o modal aparecer completamente
             time.sleep(2)
 
-            # Tenta encontrar o botão de confirmação usando o localizador
-            if self._element_exists(terms_locators.CONFIRM_BUTTON, timeout=2):
-                confirm_button = self.driver.find_element(
-                    By.XPATH, terms_locators.CONFIRM_BUTTON)
+            # Salvar screenshot para diagnóstico
+            self._save_screenshot("before_modal_confirmation_check")
 
-                # Rolar até o botão para garantir que está visível
-                self.driver.execute_script(
-                    "arguments[0].scrollIntoView(true);", confirm_button)
-                # Pequena pausa para garantir que o scroll terminou
-                time.sleep(1)
+            # Lista expandida de possíveis botões de confirmação
+            confirmation_buttons = [
+                terms_locators.CONFIRM_BUTTON,  # Botão padrão de confirmação
+                "//button[contains(text(), 'Confirmar')]",
+                "//button[contains(text(), 'Confirm')]",
+                "//button[contains(text(), 'Aceitar')]",
+                "//button[contains(text(), 'Accept')]",
+                "//button[contains(text(), 'OK')]",
+                "//button[contains(text(), 'Continue')]",
+                "//button[contains(text(), 'Continuar')]",
+                "//div[@role='button' and contains(text(), 'Confirmar')]",
+                "//div[@role='button' and contains(text(), 'Confirm')]",
+                "//span[contains(text(), 'Confirmar')]/ancestor::button",
+                "//span[contains(text(), 'Confirm')]/ancestor::button",
+                "//button[contains(@id, 'confirm')]",
+                "//button[contains(@class, 'confirm')]"
+            ]
 
-                # Clicar no botão de confirmação
-                confirm_button.click()
-                logger.info("[OK] Modal de confirmação fechado com sucesso.")
-                self.terms_info.confirmation_handled = True
-                time.sleep(2)  # Espera para processamento
-                return True
+            # Tentativa adicional para captar iframes
+            iframes = self.driver.find_elements(By.TAG_NAME, "iframe")
+            if iframes:
+                logger.info(
+                    f"[BUSCA] Detectados {len(iframes)} iframes, verificando cada um...")
 
+                for i, iframe in enumerate(iframes):
+                    try:
+                        self.driver.switch_to.frame(iframe)
+                        logger.info(f"[BUSCA] Verificando iframe #{i+1}")
+
+                        for button_xpath in confirmation_buttons:
+                            if self._element_exists(button_xpath, timeout=1):
+                                logger.info(
+                                    f"[OK] Botão de confirmação encontrado dentro do iframe: {button_xpath}")
+                                confirm_button = self.driver.find_element(
+                                    By.XPATH, button_xpath)
+
+                                # Tentar clicar no botão
+                                try:
+                                    confirm_button.click()
+                                    logger.info(
+                                        "[OK] Botão de confirmação no iframe clicado com sucesso")
+                                    time.sleep(2)
+
+                                    # Voltar ao contexto principal
+                                    self.driver.switch_to.default_content()
+                                    self.terms_info.confirmation_handled = True
+                                    return True
+                                except Exception as e:
+                                    logger.warning(
+                                        f"[AVISO] Falha ao clicar no botão dentro do iframe: {str(e)}")
+
+                        # Voltar ao contexto principal se não encontrou botão neste iframe
+                        self.driver.switch_to.default_content()
+                    except Exception as iframe_e:
+                        logger.warning(
+                            f"[AVISO] Erro ao tentar acessar iframe #{i+1}: {str(iframe_e)}")
+                        self.driver.switch_to.default_content()
+
+            # Verificar cada possível botão
+            for button_xpath in confirmation_buttons:
+                try:
+                    if self._element_exists(button_xpath, timeout=1):
+                        logger.info(
+                            f"[OK] Botão de confirmação encontrado: {button_xpath}")
+                        confirm_button = self.driver.find_element(
+                            By.XPATH, button_xpath)
+
+                        # Rolar até o botão para garantir que está visível
+                        self.driver.execute_script(
+                            "arguments[0].scrollIntoView({block: 'center'});", confirm_button)
+                        time.sleep(1)
+
+                        # Salvar screenshot antes do clique
+                        self._save_screenshot(
+                            "before_confirmation_button_click")
+
+                        # Tentar clicar no botão
+                        try:
+                            confirm_button.click()
+                            logger.info(
+                                "[OK] Botão de confirmação clicado com sucesso")
+                        except Exception as click_e:
+                            logger.warning(
+                                f"[AVISO] Falha ao clicar diretamente no botão: {str(click_e)}")
+
+                            # Tentar via JavaScript como alternativa
+                            try:
+                                self.driver.execute_script(
+                                    "arguments[0].click();", confirm_button)
+                                logger.info(
+                                    "[OK] Botão de confirmação clicado via JavaScript")
+                            except Exception as js_e:
+                                logger.error(
+                                    f"[ERRO] Falha ao clicar via JavaScript: {str(js_e)}")
+                                continue
+
+                        # Salvar screenshot após o clique
+                        self._save_screenshot(
+                            "after_confirmation_button_click")
+
+                        # Marcar como tratado e esperar processamento
+                        self.terms_info.confirmation_handled = True
+                        time.sleep(3)
+                        return True
+                except Exception as e:
+                    logger.warning(
+                        f"[AVISO] Erro ao verificar botão {button_xpath}: {str(e)}")
+
+            # Verificar se há elementos do tipo "diálogo" ou "modal" sem botões explícitos
+            modal_elements = [
+                "//div[@role='dialog']",
+                "//div[contains(@class, 'modal')]",
+                "//div[contains(@class, 'dialog')]"
+            ]
+
+            for modal_elem in modal_elements:
+                if self._element_exists(modal_elem, timeout=1):
+                    logger.info(f"[OK] Modal/diálogo detectado: {modal_elem}")
+
+                    # Salvar screenshot do modal
+                    self._save_screenshot("modal_detected")
+
+                    # Tentar encontrar qualquer botão dentro do modal
+                    modal = self.driver.find_element(By.XPATH, modal_elem)
+                    try:
+                        # Encontrar todos os botões dentro do modal
+                        buttons = modal.find_elements(By.TAG_NAME, "button")
+                        if buttons:
+                            # Preferir o último botão (geralmente é o de confirmar)
+                            buttons[-1].click()
+                            logger.info("[OK] Último botão do modal clicado")
+                            self.terms_info.confirmation_handled = True
+                            time.sleep(2)
+                            return True
+                    except Exception as modal_e:
+                        logger.warning(
+                            f"[AVISO] Erro ao interagir com o modal: {str(modal_e)}")
+
+            # Se nada foi encontrado
             logger.info(
-                "[OK] Nenhum modal de confirmação encontrado, continuando...")
+                "[OK] Nenhum modal de confirmação encontrado que possa ser tratado, continuando...")
             self.terms_info.confirmation_handled = True
             return True
 
@@ -1395,409 +1522,171 @@ class TermsHandler:
                     continue
                 return False
 
-    def _handle_recovery_email(self, recovery_email=None) -> bool:
-        """
-        Lida com a tela de email de recuperação.
-        Se recovery_email for fornecido, preenche o campo.
-        Caso contrário, pula essa etapa.
-
-        Args:
-            recovery_email (str, optional): Email de recuperação a ser inserido.
-
-        Returns:
-            bool: True se a operação foi bem-sucedida
-        """
+    def _skip_recovery_email(self) -> bool:
+        """Gerencia a tela de recuperação de email. Insere o email fornecido ou pula a etapa."""
         try:
             logger.info(" Verificando tela de email de recuperação...")
 
-            # Esperar um pouco para garantir que a página carregou completamente
-            # Aumentado para 3 segundos para garantir carregamento
-            time.sleep(3)
-
-            # Verificar se estamos na tela de email de recuperação
-            recovery_page_indicators = [
-                "//h1[contains(text(), 'Adicionar email de recuperação')]",
-                "//h1[contains(text(), 'Add recovery email')]",
-                "//h1[contains(text(), 'Añadir correo de recuperación')]",
-                "//div[contains(text(), 'email de recuperação')]",
-                "//div[contains(text(), 'recovery email')]",
-                "//div[contains(text(), 'correo de recuperación')]",
-                # Identificadores de texto auxiliar na página
-                "//div[contains(text(), 'Caso você esqueça a senha')]",
-                "//div[contains(text(), 'In case you forget your password')]",
-                "//div[contains(text(), 'Si olvidas tu contraseña')]"
+            # Primeiro verificar se a tela de recuperação está presente
+            recovery_elements = [
+                "//input[@type='email']",
+                "//div[contains(text(), 'Adicionar e-mail de recuperação')]",
+                "//div[contains(text(), 'Add recovery email')]",
+                "//div[contains(text(), 'Añadir correo de recuperación')]"
             ]
 
-            # Salvar screenshot para diagnóstico inicial
-            self._save_screenshot("recovery_page_check")
-
-            on_recovery_page = False
-            detected_indicator = None
-            for indicator in recovery_page_indicators:
-                if self._element_exists(indicator, timeout=2):
-                    logger.info(
-                        f"[OK] Tela de email de recuperação identificada com: {indicator}")
-                    on_recovery_page = True
-                    detected_indicator = indicator
-                    break
-
-            # Verificação adicional com base nos campos de entrada
-            if not on_recovery_page:
-                email_field_selectors = [
-                    "//input[@type='email']",
-                    "//input[contains(@aria-label, 'email')]",
-                    "//input[contains(@name, 'recovery')]",
-                    "//input[contains(@placeholder, 'email')]"
-                ]
-
-                for selector in email_field_selectors:
-                    if self._element_exists(selector, timeout=2):
+            recovery_screen_present = False
+            for element in recovery_elements:
+                try:
+                    if WebDriverWait(self.driver, 3).until(EC.presence_of_element_located((By.XPATH, element))):
+                        recovery_screen_present = True
                         logger.info(
-                            f"[OK] Campo de email detectado, provavelmente estamos na tela de recuperação: {selector}")
-                        on_recovery_page = True
+                            "[OK] Tela de email de recuperação detectada")
                         break
+                except TimeoutException:
+                    continue
 
-            if not on_recovery_page:
+            if not recovery_screen_present:
                 logger.info(
-                    "[INFO] Não estamos na tela de email de recuperação, continuando...")
+                    "[OK] Tela de email de recuperação não detectada, continuando...")
                 return True
 
-            # Salvar screenshot para diagnóstico
-            self._save_screenshot("recovery_email_screen_confirmed")
+            # Se temos um email de recuperação definido, vamos preenchê-lo
+            if self.recovery_email:
+                try:
+                    logger.info(
+                        f"[OK] Inserindo email de recuperação: {self.recovery_email}")
 
-            # Se recovery_email for fornecido, preenchemos o campo em vez de pular
-            if recovery_email:
-                logger.info(
-                    f"[INFO] Inserindo email de recuperação: {recovery_email}")
+                    # Encontrar o campo de email
+                    email_field = self.driver.find_element(
+                        By.XPATH, "//input[@type='email']")
 
-                # Localizar o campo de email
-                email_field_selectors = [
-                    "//input[@type='email']",
-                    "//input[contains(@aria-label, 'email')]",
-                    "//input[contains(@name, 'recovery')]",
-                    "//input[contains(@placeholder, 'email')]",
-                    # Seletores de backup genéricos
-                    "//input",
-                    "//input[not(@type='hidden')]"
-                ]
+                    # Limpar o campo e inserir o email
+                    email_field.clear()
+                    email_field.send_keys(self.recovery_email)
 
-                # Procurar o campo de email
-                email_field = None
-                used_selector = None
-                for selector in email_field_selectors:
-                    try:
-                        if self._element_exists(selector, timeout=2):
-                            elements = self.driver.find_elements(
-                                By.XPATH, selector)
-
-                            # Se houver múltiplos campos, tentar identificar o correto
-                            if len(elements) > 1:
-                                logger.info(
-                                    f"[INFO] Encontrados {len(elements)} campos com o seletor {selector}")
-                                for i, element in enumerate(elements):
-                                    if element.is_displayed():
-                                        try:
-                                            placeholder = element.get_attribute(
-                                                "placeholder") or ""
-                                            label = element.get_attribute(
-                                                "aria-label") or ""
-                                            name = element.get_attribute(
-                                                "name") or ""
-
-                                            logger.info(
-                                                f"[INFO] Campo {i}: placeholder='{placeholder}', label='{label}', name='{name}'")
-
-                                            # Se parece com campo de email
-                                            if "mail" in placeholder.lower() or "mail" in label.lower() or "mail" in name.lower():
-                                                email_field = element
-                                                used_selector = f"{selector}[{i}]"
-                                                logger.info(
-                                                    f"[OK] Escolhido campo {i} como campo de email")
-                                                break
-                                        except:
-                                            pass
-
-                                # Se não identificou por atributos, usar o primeiro visível
-                                if not email_field:
-                                    for i, element in enumerate(elements):
-                                        if element.is_displayed():
-                                            email_field = element
-                                            used_selector = f"{selector}[{i}]"
-                                            logger.info(
-                                                f"[INFO] Usando primeiro campo visível ({i}) como campo de email")
-                                            break
-                            else:
-                                email_field = elements[0]
-                                used_selector = selector
-
-                            if email_field:
-                                logger.info(
-                                    f"[OK] Campo de email encontrado: {used_selector}")
-                                break
-                    except Exception as e:
-                        logger.warning(
-                            f"[AVISO] Erro ao buscar campo com seletor {selector}: {str(e)}")
-                        continue
-
-                if not email_field:
-                    logger.warning(
-                        "[AVISO] Campo de email de recuperação não encontrado, tentando pular...")
-                    # Salvar screenshot para diagnóstico
-                    self._save_screenshot("email_field_not_found")
-
-                    # Se não encontrou o campo, tenta apenas pular
-                    skip_button_selectors = [
-                        terms_locators.RECOVERY_EMAIL_SKIP,
-                        "//button[contains(text(), 'Pular')]",
-                        "//button[contains(text(), 'Skip')]",
-                        "//button[contains(text(), 'Omitir')]",
-                        "//div[@role='button' and contains(text(), 'Pular')]",
-                        "//div[@role='button' and contains(text(), 'Skip')]",
-                        "//div[@role='button' and contains(text(), 'Omitir')]"
-                    ]
-
-                    skip_clicked = False
-                    for selector in skip_button_selectors:
-                        try:
-                            if self._element_exists(selector, timeout=2):
-                                skip_button = self.driver.find_element(
-                                    By.XPATH, selector)
-
-                                # Scrollar até o botão
-                                self.driver.execute_script(
-                                    "arguments[0].scrollIntoView({block: 'center'});", skip_button)
-                                time.sleep(1)
-
-                                # Tentar clicar
-                                skip_button.click()
-                                logger.info(
-                                    f"[OK] Botão 'Skip' clicado usando seletor: {selector}")
-                                skip_clicked = True
-                                break
-                        except Exception as e:
-                            logger.warning(
-                                f"[AVISO] Erro ao clicar no botão Skip com seletor {selector}: {str(e)}")
-                            continue
-
-                    if not skip_clicked:
-                        logger.warning(
-                            "[AVISO] Não foi possível pular após não encontrar campo de email")
-                        # Tentar continuar mesmo assim
-                        return True
-                else:
-                    # Limpar o campo (caso já tenha algum valor)
-                    try:
-                        email_field.clear()
-                        logger.info("[INFO] Campo de email limpo")
-                    except Exception as e:
-                        logger.warning(
-                            f"[AVISO] Erro ao limpar campo de email: {str(e)}")
-
-                    # Inserir o email de recuperação
-                    try:
-                        email_field.send_keys(recovery_email)
-                        logger.info(
-                            "[OK] Email de recuperação inserido com sucesso")
-
-                        # Salvar screenshot para confirmar
-                        self._save_screenshot("email_filled")
-                    except Exception as e:
-                        logger.error(
-                            f"[ERRO] Falha ao inserir email: {str(e)}")
-                        return False
-
-                    # Clicar no botão Avançar/Next
-                    next_button_selectors = [
-                        "//button[contains(text(), 'Avançar')]",
+                    # Clicar no botão Next/Próximo
+                    next_buttons = [
+                        # XPath específico fornecido pelo usuário
+                        "/html/body/div[1]/div[1]/div[2]/c-wiz/div/div[3]/div/div/div[2]/div/div/button",
+                        # XPaths mais genéricos
+                        "//button[contains(text(), 'Próximo')]",
                         "//button[contains(text(), 'Next')]",
                         "//button[contains(text(), 'Siguiente')]",
-                        "//div[@role='button' and contains(text(), 'Avançar')]",
-                        "//div[@role='button' and contains(text(), 'Next')]",
-                        "//div[@role='button' and contains(text(), 'Siguiente')]",
-                        # Botões genéricos como backup
-                        "//button[contains(@class, 'VfPpkd-LgbsSe')]",
-                        "//div[@role='button']"
+                        "//button[contains(text(), 'Avançar')]",
+                        "//span[contains(text(), 'Próximo')]/ancestor::button",
+                        "//span[contains(text(), 'Next')]/ancestor::button",
+                        "//span[contains(text(), 'Siguiente')]/ancestor::button",
+                        "//span[contains(text(), 'Avançar')]/ancestor::button",
+                        "//button[contains(@class, 'VfPpkd-LgbsSe')]//span[text()='Avançar']",
+                        "//button[contains(@class, 'VfPpkd-LgbsSe-OWXEXe-INsAgc')]"
                     ]
 
-                    next_button = None
-                    used_next_selector = None
-                    for selector in next_button_selectors:
+                    button_clicked = False
+                    for xpath in next_buttons:
                         try:
-                            if self._element_exists(selector, timeout=2):
-                                elements = self.driver.find_elements(
-                                    By.XPATH, selector)
-
-                                # Se houver múltiplos botões, tentar identificar o correto
-                                if len(elements) > 1:
+                            if WebDriverWait(self.driver, 2).until(EC.element_to_be_clickable((By.XPATH, xpath))):
+                                next_button = self.driver.find_element(
+                                    By.XPATH, xpath)
+                                # Tentar clique direto primeiro
+                                try:
+                                    next_button.click()
                                     logger.info(
-                                        f"[INFO] Encontrados {len(elements)} botões com o seletor {selector}")
-                                    for i, button in enumerate(elements):
-                                        if button.is_displayed() and button.is_enabled():
-                                            button_text = button.text.strip() if button.text else "Sem texto"
-
-                                            # Ignorar botões de pular ou cancelar
-                                            if button_text and button_text.lower() in ["pular", "skip", "omitir", "cancelar", "cancel"]:
-                                                logger.info(
-                                                    f"[INFO] Ignorando botão '{button_text}' - não é o botão de avançar")
-                                                continue
-
-                                            next_button = button
-                                            used_next_selector = f"{selector}[{i}]"
-                                            logger.info(
-                                                f"[OK] Escolhido botão {i} com texto '{button_text}' como botão de avançar")
-                                            break
-
-                                    # Se não identificou por texto, usar o primeiro visível e habilitado
-                                    if not next_button:
-                                        for i, button in enumerate(elements):
-                                            if button.is_displayed() and button.is_enabled():
-                                                next_button = button
-                                                used_next_selector = f"{selector}[{i}]"
-                                                logger.info(
-                                                    f"[INFO] Usando primeiro botão visível ({i}) como botão de avançar")
-                                                break
-                                else:
-                                    # Se houver apenas um botão
-                                    next_button = elements[0]
-                                    used_next_selector = selector
-
-                                if next_button:
-                                    logger.info(
-                                        f"[OK] Botão 'Avançar' encontrado: {used_next_selector}")
+                                        f"[OK] Email de recuperação inserido e botão Próximo clicado com xpath: {xpath}")
+                                    button_clicked = True
                                     break
-                        except Exception as e:
-                            logger.warning(
-                                f"[AVISO] Erro ao buscar botão com seletor {selector}: {str(e)}")
+                                except Exception as click_e:
+                                    logger.warning(
+                                        f"[AVISO] Clique direto falhou para xpath {xpath}: {str(click_e)}")
+                                    # Tentar via JavaScript
+                                    try:
+                                        self.driver.execute_script(
+                                            "arguments[0].click();", next_button)
+                                        logger.info(
+                                            f"[OK] Email de recuperação inserido e botão Próximo clicado via JavaScript com xpath: {xpath}")
+                                        button_clicked = True
+                                        break
+                                    except Exception as js_e:
+                                        logger.warning(
+                                            f"[AVISO] Clique via JavaScript também falhou para xpath {xpath}: {str(js_e)}")
+                        except:
                             continue
 
-                    if next_button:
-                        # Scrollar até o botão para garantir que está visível
+                    if not button_clicked:
+                        logger.warning(
+                            "[AVISO] Não foi possível clicar no botão Próximo após inserir email de recuperação")
+                        # Tentar alternativa - JavaScript
                         try:
-                            self.driver.execute_script(
-                                "arguments[0].scrollIntoView({block: 'center'});", next_button)
-                            time.sleep(1)
-
-                            # Salvar screenshot antes do clique
-                            self._save_screenshot("before_next_click")
-                        except Exception as e:
-                            logger.warning(
-                                f"[AVISO] Erro ao scrollar até botão: {str(e)}")
-
-                        # Clicar no botão usando múltiplas estratégias
-                        click_success = False
-
-                        # Tentativa 1: Clique direto
-                        try:
-                            next_button.click()
+                            self.driver.execute_script("""
+                                var buttons = document.querySelectorAll('button');
+                                for (var i = 0; i < buttons.length; i++) {
+                                    if (buttons[i].innerText.includes('Next') || 
+                                        buttons[i].innerText.includes('Próximo') ||
+                                        buttons[i].innerText.includes('Siguiente') ||
+                                        buttons[i].innerText.includes('Avançar')) {
+                                        buttons[i].click();
+                                        return true;
+                                    }
+                                }
+                                
+                                // Tentar encontrar pelo atributo de classe específico
+                                var advanceButtons = document.querySelectorAll('button.VfPpkd-LgbsSe-OWXEXe-INsAgc');
+                                if (advanceButtons.length > 0) {
+                                    for (var j = 0; j < advanceButtons.length; j++) {
+                                        if (advanceButtons[j].offsetParent !== null) {
+                                            advanceButtons[j].click();
+                                            return true;
+                                        }
+                                    }
+                                }
+                                
+                                return false;
+                            """)
                             logger.info(
-                                "[OK] Botão 'Avançar' clicado com sucesso via clique direto")
-                            click_success = True
-
-                            # Salvar screenshot após o clique
-                            self._save_screenshot("after_next_click")
+                                "[OK] Clique via JavaScript no botão Próximo")
                         except Exception as e:
-                            logger.warning(
-                                f"[AVISO] Clique direto falhou: {str(e)}")
-
-                            # Tentativa 2: Clique via JavaScript
-                            try:
-                                self.driver.execute_script(
-                                    "arguments[0].click();", next_button)
-                                logger.info(
-                                    "[OK] Botão 'Avançar' clicado com sucesso via JavaScript")
-                                click_success = True
-
-                                # Salvar screenshot após o clique
-                                self._save_screenshot("after_next_js_click")
-                            except Exception as e2:
-                                logger.warning(
-                                    f"[AVISO] Clique via JavaScript falhou: {str(e2)}")
-
-                                # Tentativa 3: Actions
-                                try:
-                                    from selenium.webdriver.common.action_chains import ActionChains
-                                    actions = ActionChains(self.driver)
-                                    actions.move_to_element(
-                                        next_button).click().perform()
-                                    logger.info(
-                                        "[OK] Botão 'Avançar' clicado com sucesso via Actions")
-                                    click_success = True
-
-                                    # Salvar screenshot após o clique
-                                    self._save_screenshot(
-                                        "after_next_actions_click")
-                                except Exception as e3:
-                                    logger.error(
-                                        f"[ERRO] Todas as tentativas de clique falharam: {str(e3)}")
-
-                        if not click_success:
                             logger.error(
-                                "[ERRO] Não foi possível clicar no botão 'Avançar'")
-                            # Mesmo com falha, tentar continuar o fluxo
-                            return True
-                    else:
-                        logger.warning(
-                            "[AVISO] Botão 'Avançar' não encontrado após inserir email")
-                        # Tentar continuar mesmo assim
-                        return True
-            else:
-                # Se não tiver email de recuperação, pular normalmente
-                logger.info(
-                    "[INFO] Nenhum email de recuperação fornecido, pulando...")
+                                f"[ERRO] Falha no clique via JavaScript: {str(e)}")
 
-                # Tentar clicar no botão Pular/Skip
-                skip_button_selectors = [
-                    terms_locators.RECOVERY_EMAIL_SKIP,
-                    "//button[contains(text(), 'Pular')]",
-                    "//button[contains(text(), 'Skip')]",
-                    "//button[contains(text(), 'Omitir')]",
-                    "//div[@role='button' and contains(text(), 'Pular')]",
-                    "//div[@role='button' and contains(text(), 'Skip')]",
-                    "//div[@role='button' and contains(text(), 'Omitir')]"
-                ]
-
-                skip_clicked = False
-                for selector in skip_button_selectors:
+                except Exception as e:
+                    logger.error(
+                        f"[ERRO] Erro ao inserir email de recuperação: {str(e)}")
+                    # Se falhar ao inserir o email, tentar pular
                     try:
-                        if self._element_exists(selector, timeout=2):
-                            skip_button = self.driver.find_element(
-                                By.XPATH, selector)
+                        skip_button = WebDriverWait(self.driver, 3).until(
+                            EC.element_to_be_clickable(
+                                (By.XPATH, terms_locators.RECOVERY_EMAIL_SKIP))
+                        )
+                        skip_button.click()
+                        logger.info(
+                            "[OK] Botão 'Skip' clicado após falha ao inserir email")
+                    except:
+                        logger.error(
+                            "[ERRO] Não foi possível pular após falha ao inserir email")
+                        return False
+            else:
+                # Se não temos um email de recuperação, vamos pular esta etapa
+                try:
+                    logger.info(
+                        "[OK] Nenhum email de recuperação fornecido, pulando etapa...")
+                    skip_button = WebDriverWait(self.driver, 3).until(
+                        EC.element_to_be_clickable(
+                            (By.XPATH, terms_locators.RECOVERY_EMAIL_SKIP))
+                    )
+                    skip_button.click()
+                    logger.info("[OK] Botão 'Skip' clicado com sucesso")
+                except Exception as e:
+                    logger.error(
+                        f"[ERRO] Erro ao clicar no botão Skip: {str(e)}")
+                    return False
 
-                            # Scrollar até o botão
-                            self.driver.execute_script(
-                                "arguments[0].scrollIntoView({block: 'center'});", skip_button)
-                            time.sleep(1)
-
-                            # Tentar clicar
-                            skip_button.click()
-                            logger.info(
-                                f"[OK] Botão 'Skip' clicado com sucesso usando seletor: {selector}")
-                            skip_clicked = True
-                            break
-                    except Exception as e:
-                        logger.warning(
-                            f"[AVISO] Erro ao clicar no botão Skip com seletor {selector}: {str(e)}")
-                        continue
-
-                if not skip_clicked:
-                    logger.warning(
-                        "[AVISO] Não foi possível clicar em nenhum botão 'Pular'")
-                    # Tentar continuar mesmo assim
-                    return True
-
-            # Aguardar processamento após clicar
-            time.sleep(3)  # Aumentado para 3 segundos
+            time.sleep(2)  # Pequena pausa para processamento
             return True
 
-        except TimeoutException:
-            logger.warning(
-                "[AVISO] Tela de email de recuperação não apareceu ou não encontrou botão Skip, continuando...")
-            return True  # Continua o fluxo normalmente
         except Exception as e:
             logger.error(
-                f"[ERRO] Erro ao lidar com email de recuperação: {str(e)}")
-            # Mesmo com erro, tentamos continuar o fluxo
-            return True
+                f"[ERRO] Erro ao gerenciar tela de email de recuperação: {str(e)}")
+            return False
 
     def _save_screenshot(self, name):
         """Salva um screenshot para fins de depuração."""

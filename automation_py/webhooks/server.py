@@ -1,7 +1,8 @@
 from powerads_api.profiles import ProfileManager, get_profiles
-from credentials.credentials_manager import get_credential
+from credentials.credentials_manager import get_credential, load_credentials
 from automations.adsense_creator.core import AdSenseCreator
 from automations.gmail_creator.core import GmailCreator
+from automations.data_generator import generate_gmail_credentials
 import os
 import sys
 import time
@@ -101,11 +102,10 @@ class PhoneParams(BaseModel):
 
 
 class GmailCreationParams(BaseModel):
-    phone_params: Optional[PhoneParams] = None
     headless: Optional[bool] = False
     max_wait_time: Optional[int] = 60
-    webhook_callback: Optional[str] = None
     recovery_email: Optional[str] = None
+    webhook_callback: Optional[str] = None
 
 
 class AdSenseCreationParams(BaseModel):
@@ -239,14 +239,14 @@ def update_sms_status(activation_id: str, status: str, error: Optional[str] = No
         logger.error(f"[ERRO] Erro ao atualizar status do SMS: {str(e)}")
 
 
-def process_gmail_creation(job_id: str, user_id: str, params=None):
+def process_gmail_creation(job_id: str, user_id: str, data: dict):
     """
     Processa a criação de uma conta Gmail em background.
 
     Args:
         job_id: ID do job
         user_id: ID do usuário solicitando a criação
-        params: Parâmetros adicionais como email de recuperação, etc.
+        data: Dados adicionais para criação da conta
     """
     try:
         # Atualizar status para processando
@@ -260,153 +260,80 @@ def process_gmail_creation(job_id: str, user_id: str, params=None):
         if not user_id:
             raise ValueError("user_id é obrigatório")
 
-        # Se params não for fornecido, inicializar como um dicionário vazio
-        if params is None:
-            params = {}
+        # Extrair parâmetros do data
+        headless = data.get('headless', False) if data else False
+        max_wait_time = data.get('max_wait_time', 60) if data else 60
+        recovery_email = data.get('recovery_email') if data else None
 
-        # Extrair parâmetros específicos
-        phone_params = params.get('phone_params')
-        recovery_email = params.get('recovery_email')
-        headless = params.get('headless', False)
-        max_wait_time = params.get('max_wait_time', 60)
-
-        # Log do email de recuperação se fornecido
-        if recovery_email:
-            logger.info(
-                f"[INFO] Email de recuperação fornecido: {recovery_email}")
-
-        # Carregar credenciais
-        credentials = load_credentials()
+        # Gerar credenciais para o Gmail
+        from automations.data_generator import generate_gmail_credentials
+        credentials = generate_gmail_credentials()
         if not credentials:
-            raise ValueError("Credenciais não encontradas")
+            raise ValueError("Falha ao gerar credenciais para o Gmail")
 
-        # Garantir que o username seja gerado no formato correto: nomesobrenomemesano
-        if "username" in credentials and not credentials["username"].startswith(credentials["first_name"].lower()):
-            # Importar a função para gerar username no formato correto
-            from automations.data_generator import generate_username
+        # Adicionar recovery_email às credenciais se fornecido
+        if recovery_email:
+            credentials["recovery_email"] = recovery_email
 
-            # Regenerar o username no formato correto
-            credentials["username"] = generate_username(
-                credentials["first_name"],
-                credentials["last_name"],
-                credentials["birth_month"],
-                credentials["birth_year"]
-            )
-            logger.info(
-                f"[INFO] Username regenerado no formato correto: {credentials['username']}")
-
-        # Verificar se perfil existe
-        # Criar um objeto cache temporário
+        # Criar classe temporária de cache
         class TempCache:
             def __init__(self):
                 self.profiles_cache = {}
 
+        # Verificar se perfil existe
         profile_manager = ProfileManager(TempCache())
-        profile = profile_manager.get_profile_by_id(user_id)
+        profiles = profile_manager.get_all_profiles(force_refresh=True)
+        profile = next(
+            (p for p in profiles if p.get("user_id") == user_id), None)
         if not profile:
             raise ValueError(f"Perfil {user_id} não encontrado")
 
-        # Inicializar componentes com APIs necessárias
-        from apis.phone_manager import PhoneManager
+        # Importar as classes necessárias
+        from automations.gmail_creator.core import GmailCreator
         from apis.sms_api import SMSAPI
-
-        sms_api = SMSAPI()
-        phone_manager = PhoneManager()
-
-        # Configurar browser manager
         from powerads_api.browser_manager import BrowserManager, BrowserConfig
         from powerads_api.ads_power_manager import AdsPowerManager
 
-        # Obter credenciais para AdsPower
+        # Obter credenciais
         base_url = get_credential("PA_BASE_URL")
         api_key = get_credential("PA_API_KEY")
+        sms_api_key = get_credential("SMS_ACTIVATE_API_KEY")
 
-        if not base_url or not api_key:
-            raise ValueError("Credenciais do AdsPower não configuradas")
-
-        # Configurar browser
+        # Configurar browser manager
         browser_config = BrowserConfig(
-            headless=headless,
-            max_wait_time=max_wait_time
-        )
-
+            headless=headless, max_wait_time=max_wait_time)
         adspower_manager = AdsPowerManager(base_url, api_key)
         browser_manager = BrowserManager(adspower_manager)
         browser_manager.set_config(browser_config)
 
-        # Inicializar o Gmail Creator
+        # Inicializar componentes
+        sms_api = SMSAPI(sms_api_key) if sms_api_key else None
         gmail_creator = GmailCreator(
             browser_manager=browser_manager,
             credentials=credentials,
             sms_api=sms_api,
             profile_name=user_id
         )
-        gmail_creator.phone_manager = phone_manager
 
-        # Criar conta com os parâmetros fornecidos
-        success, result = gmail_creator.create_account(
-            user_id=user_id,
-            phone_params=phone_params,
-            recovery_email=recovery_email
-        )
+        # Criar conta
+        success, result = gmail_creator.create_account(user_id)
 
-        if not success:
-            raise ValueError("Falha ao criar conta Gmail")
-
-        # Salvar as credenciais no arquivo gmail.json
-        try:
-            # NOTA: As credenciais já foram salvas automaticamente pela classe AccountVerify
-            # antes do redirecionamento para o Gmail, mas vamos salvar novamente como medida
-            # de segurança adicional e para garantir que temos todos os dados complementares
-
-            # Importar função para salvar credenciais
-            from automations.data_generator import save_gmail_account
-
-            # Adicionar data de criação
-            from datetime import datetime
-            result["creation_date"] = datetime.now().strftime(
-                "%Y-%m-%d %H:%M:%S")
-
-            # Extrair dados da conta criada
-            email = result.get("email")
-            password = result.get("password")
-            phone = result.get("phone")
-
-            # Salvar no arquivo de credenciais
-            save_result = save_gmail_account(
-                email=email,
-                password=password,
-                phone_number=phone,
-                profile_name=user_id,
-                account_data={
-                    "first_name": result.get("first_name"),
-                    "last_name": result.get("last_name"),
-                    "country_code": result.get("country_code"),
-                    "country_name": result.get("country_name"),
-                    "activation_id": result.get("activation_id"),
-                    "creation_date": result.get("creation_date")
-                }
+        if success:
+            # Atualizar status com sucesso
+            update_job_status(
+                job_id=job_id,
+                status="completed",
+                message="Conta criada com sucesso",
+                result=result
             )
-
-            if save_result:
-                logger.info(
-                    f"[OK] Credenciais da conta {email} salvas com sucesso")
-            else:
-                logger.warning(
-                    f"[AVISO] Não foi possível salvar as credenciais da conta {email}")
-
-        except Exception as save_error:
-            logger.error(
-                f"[ERRO] Erro ao salvar credenciais: {str(save_error)}")
-            # Não interromper o fluxo por falha no salvamento de credenciais
-
-        # Atualizar status com sucesso
-        update_job_status(
-            job_id=job_id,
-            status="completed",
-            message="Conta criada com sucesso",
-            result=result
-        )
+        else:
+            # Atualizar status com erro
+            update_job_status(
+                job_id=job_id,
+                status="error",
+                message="Falha ao criar conta Gmail",
+                error_details="O processo de criação falhou. Verifique os logs para mais detalhes."
+            )
 
     except Exception as e:
         logger.error(f"Erro ao processar job {job_id}: {str(e)}")
@@ -2026,114 +1953,6 @@ async def verify_adsense_account(user_id: str, data: dict = None):
                 "error_code": "ADSENSE_VERIFY_ACCOUNT_ERROR"
             }
         )
-
-
-def load_credentials():
-    """
-    Carrega credenciais para criação de contas Gmail do arquivo gerado pelo data_generator.py.
-
-    Returns:
-        dict: Dicionário com as credenciais (first_name, last_name, username, password, birth_month, birth_day, birth_year)
-    """
-    try:
-        # Caminho correto do arquivo de credenciais usado pelo data_generator.py
-        credentials_path = os.path.join(os.path.dirname(
-            __file__), "..", "credentials", "gmail.json")
-
-        # Verificar se o arquivo existe
-        if not os.path.exists(credentials_path):
-            logger.error(
-                f"[ERRO] Arquivo de credenciais não encontrado: {credentials_path}")
-            # Gerar credenciais usando o data_generator
-            try:
-                # Importar o gerador de dados
-                from automations.data_generator import generate_gmail_credentials
-
-                # Gerar novas credenciais
-                new_credentials = generate_gmail_credentials()
-                logger.info(
-                    "[INFO] Novas credenciais geradas usando data_generator")
-
-                # Garantir que exista o diretório
-                os.makedirs(os.path.dirname(credentials_path), exist_ok=True)
-
-                # Salvar como primeiro item da lista
-                with open(credentials_path, 'w') as f:
-                    json.dump([new_credentials], f, indent=4)
-
-                logger.info(f"[OK] Credenciais salvas em: {credentials_path}")
-                return new_credentials
-            except Exception as import_e:
-                logger.error(
-                    f"[ERRO] Não foi possível gerar credenciais: {str(import_e)}")
-                # Criar credenciais de fallback com todos os campos necessários
-                default_credentials = {
-                    "first_name": "Usuario",
-                    "last_name": "Teste",
-                    "username": f"usuario.teste.{int(time.time())}",
-                    "password": "Senha123@#",
-                    "birth_month": "January",
-                    "birth_day": 15,
-                    "birth_year": 1990
-                }
-                return default_credentials
-
-        # Carregar credenciais do arquivo
-        with open(credentials_path, 'r') as f:
-            credentials_list = json.load(f)
-
-        # Verificar se o arquivo contém uma lista
-        if not isinstance(credentials_list, list) or not credentials_list:
-            logger.warning(
-                "[AVISO] Arquivo de credenciais não contém uma lista válida")
-            raise ValueError("Formato de arquivo de credenciais inválido")
-
-        # Pegar o primeiro conjunto de credenciais da lista
-        # Poderia ser implementada uma lógica para selecionar credenciais não utilizadas
-        credentials = credentials_list[0]
-
-        # Validar todos os campos necessários incluindo data de nascimento
-        required_fields = ["first_name", "last_name", "username", "password",
-                           "birth_month", "birth_day", "birth_year"]
-        missing_fields = [
-            field for field in required_fields if field not in credentials]
-
-        if missing_fields:
-            logger.warning(
-                f"[AVISO] Campos ausentes nas credenciais: {missing_fields}")
-
-            # Adicionar campos ausentes com valores padrão
-            for field in missing_fields:
-                if field in ["first_name", "last_name"]:
-                    credentials[field] = "Usuario"
-                elif field == "username":
-                    credentials[field] = f"usuario.{int(time.time())}"
-                elif field == "password":
-                    credentials[field] = "Senha123@#"
-                elif field == "birth_month":
-                    credentials[field] = "January"
-                elif field == "birth_day":
-                    credentials[field] = 15
-                elif field == "birth_year":
-                    credentials[field] = 1990
-
-        # Log detalhado das credenciais para debug
-        logger.info(
-            f"[OK] Credenciais carregadas com sucesso: {', '.join(credentials.keys())}")
-        return credentials
-
-    except Exception as e:
-        logger.error(f"[ERRO] Erro ao carregar credenciais: {str(e)}")
-        # Retornar credenciais de emergência completas para não quebrar o fluxo
-        return {
-            "first_name": "Usuario",
-            "last_name": "Emergencia",
-            "username": f"emergencia.{int(time.time())}",
-            "password": "Emergencia123@#",
-            "birth_month": "January",
-            "birth_day": 15,
-            "birth_year": 1990
-        }
 
 
 if __name__ == "__main__":

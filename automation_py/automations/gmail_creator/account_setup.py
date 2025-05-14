@@ -20,7 +20,7 @@ from .locators import account_locators, username_locators, password_locators
 logger = logging.getLogger(__name__)
 
 # Configuração para habilitar/desabilitar modo de debug com screenshots
-DEBUG_MODE = False  # Mudar para True apenas quando precisar diagnosticar problemas
+DEBUG_MODE = True  # Habilitado para capturar screenshots e diagnosticar problemas
 
 
 class SetupState(Enum):
@@ -80,17 +80,32 @@ class AccountSetup:
         try:
             logger.info("[INICIO] Iniciando configuração da conta Gmail...")
 
-            # Navegar para a página de signup
-            if not self._execute_with_retry(self._navigate_to_signup):
-                return False
+            # Capturar screenshot do estado inicial da página
+            self._save_screenshot("estado_inicial_pagina")
 
-            # Verificar e tratar a tela "Choose an account" se ela aparecer
-            if self._check_and_handle_choose_account_screen():
+            # Registrar URL atual para diagnóstico
+            try:
+                current_url = self.driver.current_url
+                logger.info(f"[DIAGNÓSTICO] URL inicial: {current_url}")
+            except Exception as e:
+                logger.warning(f"[AVISO] Erro ao obter URL inicial: {str(e)}")
+
+            # Verificar se já estamos na tela de informações básicas (nome e sobrenome)
+            if self._check_if_already_on_name_screen():
                 logger.info(
-                    "[OK] Tela 'Choose an account' tratada com sucesso.")
+                    "[OK] Já estamos na tela de informações básicas. Pulando navegação inicial.")
             else:
-                logger.info(
-                    " Sem tela 'Choose an account', prosseguindo com fluxo normal.")
+                # Navegar para a página de signup apenas se não estivermos na tela correta
+                if not self._execute_with_retry(self._navigate_to_signup):
+                    return False
+
+                # Verificar e tratar a tela "Choose an account" se ela aparecer
+                if self._check_and_handle_choose_account_screen():
+                    logger.info(
+                        "[OK] Tela 'Choose an account' tratada com sucesso.")
+                else:
+                    logger.info(
+                        " Sem tela 'Choose an account', prosseguindo com fluxo normal.")
 
             # Continuar com os passos normais
             setup_steps = [
@@ -120,6 +135,37 @@ class AccountSetup:
             self.account_info.state = SetupState.FAILED
             raise AccountSetupError(
                 f"Falha na configuração da conta: {str(e)}")
+
+    def _check_if_already_on_name_screen(self) -> bool:
+        """Verifica se já estamos na tela que pede nome e sobrenome."""
+        try:
+            # Capturar screenshot da tela inicial para diagnóstico
+            self._save_screenshot("tela_inicial_verificacao")
+
+            # Verificar elementos específicos da tela de nome/sobrenome
+            name_elements = [
+                (By.ID, account_locators.FIRST_NAME),
+                (By.ID, account_locators.LAST_NAME)
+            ]
+
+            for by, locator in name_elements:
+                try:
+                    if WebDriverWait(self.driver, 3).until(EC.presence_of_element_located((by, locator))):
+                        logger.info("[OK] Detectada tela de nome e sobrenome.")
+                        # Capturar screenshot quando encontrar a tela de nome/sobrenome
+                        self._save_screenshot("tela_nome_sobrenome_encontrada")
+                        return True
+                except TimeoutException:
+                    continue
+
+            # Capturar screenshot quando não encontrar a tela esperada
+            self._save_screenshot("tela_nome_sobrenome_nao_encontrada")
+            return False
+        except Exception as e:
+            logger.warning(f"[AVISO] Erro ao verificar tela inicial: {str(e)}")
+            # Capturar screenshot em caso de erro
+            self._save_screenshot("erro_verificacao_tela_inicial")
+            return False
 
     def _check_and_handle_choose_account_screen(self) -> bool:
         """Verifica se estamos na tela 'Choose an account' e clica em 'Use another account' se necessário."""
@@ -395,114 +441,122 @@ class AccountSetup:
         try:
             logger.info(" Iniciando configuração do username...")
 
-            # Primeiro verificar se já avançamos para tela de senha (verificação robusta)
-            try:
-                # Método 1: Verificar diretamente por elementos da tela de senha
-                password_elements = [
-                    "//input[@type='password']",
-                    "//div[contains(text(), 'Criar uma senha')]",
-                    "//div[contains(text(), 'Create a password')]"
-                ]
+            # Capturar apenas um screenshot inicial
+            self._save_screenshot("inicio_username_setup")
 
-                for element in password_elements:
-                    try:
-                        if WebDriverWait(self.driver, 2).until(EC.presence_of_element_located((By.XPATH, element))):
-                            logger.info(
-                                "[OK] Já estamos na tela de senha! Username já foi configurado.")
-                            return True
-                    except:
-                        continue
-
-                # Método 2: Verificar com o método de detecção geral
-                current_screen = self._check_current_screen()
-                logger.info(
-                    f"[DIAGNÓSTICO] Tela atual identificada: {current_screen}")
-
-                if current_screen == "password_screen":
-                    logger.info(
-                        "[OK] Já na tela de senha, username configurado com sucesso!")
-                    return True
-
-                # Se estamos na tela de sugestões de username, tratá-la primeiro
-                if current_screen == "username_suggestion_screen":
-                    logger.info(
-                        "[OK] Tela de sugestões de username detectada, tratando primeiro...")
-                    self._handle_username_suggestions()
-                    # Após tratar as sugestões, verificar se ainda estamos na tela de username
-                    # Pequena pausa para garantir que a tela carregou
-                    time.sleep(2)
-                    current_screen = self._check_current_screen()
-                    logger.info(
-                        f"[DIAGNÓSTICO] Tela após tratar sugestões: {current_screen}")
-
-            except Exception as e:
-                logger.warning(
-                    f"[AVISO] Erro ao verificar tela atual: {str(e)}")
-                # Tirar screenshot para diagnóstico
-                self._save_screenshot("error_checking_screen")
-
-            # Verificar se há tela de sugestões (método tradicional como fallback)
-            try:
-                if self._is_username_suggestion_screen():
-                    logger.info(
-                        "[OK] Tela de sugestões detectada pelo método fallback. Tentando selecionar 'Create your own Gmail address'...")
-                    self._handle_username_suggestions()
-                else:
-                    logger.info(
-                        "[OK] Tela de sugestões NÃO apareceu. Continuando normalmente...")
-            except Exception as e:
-                logger.warning(
-                    f"[AVISO] Erro ao verificar tela de sugestões (fallback): {e}")
-
-            # Configurar o username com verificações robustas
+            # Verificar se estamos na tela de senha (já avançamos)
             current_screen = self._check_current_screen()
-            logger.info(
-                f"[DIAGNÓSTICO] Tela antes de configurar username: {current_screen}")
-
-            # Se já não estamos na tela de senha (caso raro mas possível)
             if current_screen == "password_screen":
                 logger.info(
-                    "[OK] Já na tela de senha, pulando configuração de username!")
+                    "[OK] Já estamos na tela de senha! Username já foi configurado.")
                 return True
 
-            # Se estamos na tela correta, configurar username
-            if current_screen == "username_screen" or current_screen == "unknown_screen":
-                if not self._set_username():
-                    raise UsernameError(
-                        "[ERRO] Falha ao configurar um username válido.")
-            else:
-                logger.warning(
-                    f"[AVISO] Tela inesperada para configuração de username: {current_screen}")
-                # Tentamos mesmo assim, talvez consigamos continuar
-                if not self._set_username():
-                    raise UsernameError(
-                        "[ERRO] Falha ao configurar um username válido em tela inesperada.")
-
-            # Verificar novamente se avançamos para tela de senha
-            try:
-                current_screen = self._check_current_screen()
+            # Verificar e tratar tela de sugestões de username se necessário
+            if current_screen == "username_suggestion_screen" or self._is_username_suggestion_screen():
                 logger.info(
-                    f"[DIAGNÓSTICO] Tela após _set_username: {current_screen}")
-                if current_screen == "password_screen":
-                    logger.info(
-                        "[OK] Username configurado com sucesso, estamos na tela de senha!")
-                    return True
-            except Exception as e:
-                logger.warning(
-                    f"[AVISO] Erro ao verificar tela final: {str(e)}")
+                    "[OK] Tela de sugestões de username detectada, tratando...")
+                self._handle_username_suggestions()
+                time.sleep(2)
 
-            logger.info("[OK] Username configurado com sucesso!")
+                # Verificar novamente após tratar sugestões
+                if self._check_current_screen() == "password_screen":
+                    logger.info(
+                        "[OK] Avançamos para a senha após escolher sugestão.")
+                    return True
+
+            # Configurar username diretamente
+            if not self._set_username():
+                raise UsernameError(
+                    "[ERRO] Falha ao configurar um username válido.")
+
+            # Verificação final
+            if self._check_current_screen() == "password_screen":
+                logger.info("[OK] Username configurado com sucesso!")
+                return True
+
             return True
 
         except UsernameError as e:
             logger.error(f"[ERRO] Erro ao configurar username: {e}")
             raise e
-
         except Exception as e:
             logger.error(
                 f"[AVISO] Erro inesperado ao configurar username: {e}")
             raise UsernameError(
                 f"Erro inesperado ao configurar username: {str(e)}")
+
+    def _set_username(self) -> bool:
+        """Configura o username e verifica disponibilidade. Se já existir, tenta outro automaticamente."""
+        username_taken_xpath = username_locators.USERNAME_TAKEN_ERROR
+        max_attempts = account_config.MAX_USERNAME_ATTEMPTS
+
+        # Apenas um log e screenshot inicial
+        logger.info(
+            f"[INFO] Configurando username: {self.account_info.username}")
+        self._save_screenshot("configurando_username")
+
+        for attempt in range(max_attempts):
+            try:
+                # Verificar se já avançamos para a tela de senha
+                if self._check_current_screen() == "password_screen":
+                    logger.info("[OK] Já avançamos para a tela de senha!")
+                    return True
+
+                # 1. Localizar e preencher o campo de username
+                username_field = self.wait.until(EC.presence_of_element_located(
+                    (By.XPATH, username_locators.USERNAME_FIELD)))
+                self.wait.until(EC.element_to_be_clickable(
+                    (By.XPATH, username_locators.USERNAME_FIELD)))
+
+                # Gerar novo username se não for a primeira tentativa
+                if attempt > 0:
+                    self.account_info.username = self._generate_new_username()
+                    logger.info(
+                        f"[AVISO] Tentando username alternativo: {self.account_info.username}")
+
+                # Preencher o campo
+                username_field.clear()
+                username_field.send_keys(self.account_info.username)
+                logger.info(
+                    f"[OK] Tentativa {attempt+1}: Inserindo username '{self.account_info.username}'")
+
+                # 2. Clicar no botão Next
+                self._click_next()
+                time.sleep(2)  # Aguardar verificação/navegação
+
+                # 3. Verificar se avançamos para a próxima tela
+                if self._check_current_screen() == "password_screen":
+                    logger.info("[OK] Avançamos para a tela de senha!")
+                    return True
+
+                # 4. Verificar se há mensagem de erro de username já utilizado
+                if self._check_username_taken():
+                    logger.warning(
+                        "[AVISO] Username já está em uso. Tentando outro...")
+                    continue  # Tenta novamente com um novo username
+                else:
+                    # Tentar clicar em Next novamente
+                    logger.info("[AVISO] Tentando clicar em Next novamente...")
+                    self._click_next()
+                    time.sleep(2)
+
+                    if self._check_current_screen() == "password_screen":
+                        logger.info(
+                            "[OK] Avançamos para senha após segundo clique!")
+                        return True
+
+            except Exception as e:
+                logger.warning(
+                    f"[AVISO] Erro na tentativa {attempt+1}: {str(e)}")
+                if attempt < max_attempts - 1:
+                    logger.info("[AVISO] Tentando novamente...")
+                else:
+                    logger.error("[ERRO] Todas as tentativas falharam")
+                    return False
+
+        # Se chegou aqui, todas as tentativas falharam
+        logger.error("[ALERTA] Número máximo de tentativas atingido.")
+        return False
 
     def _is_username_suggestion_screen(self) -> bool:
         """Verifica se a tela de sugestões de username foi carregada."""
@@ -554,151 +608,6 @@ class AccountSetup:
             logger.error(
                 f"[ERRO] Erro ao tentar selecionar a opção 'Create your own Gmail address': {e}")
 
-    def _set_username(self) -> bool:
-        """Configura o username e verifica disponibilidade. Se já existir, tenta outro automaticamente."""
-        username_taken_xpath = username_locators.USERNAME_TAKEN_ERROR  # XPath da mensagem de erro
-        max_attempts = account_config.MAX_USERNAME_ATTEMPTS  # Número máximo de tentativas
-
-        for attempt in range(max_attempts):
-            try:
-                # Tirar screenshot do início da tentativa
-                self._save_screenshot(f"username_attempt_{attempt}_start")
-
-                # Verificar se já avançamos para a tela de senha
-                current_screen = self._check_current_screen()
-                if current_screen == "password_screen":
-                    logger.info(
-                        "[OK] Já na tela de senha! Username aceito com sucesso.")
-                    self._save_screenshot("already_at_password_screen")
-                    return True
-
-                # Verificar se ainda estamos na tela de username
-                if current_screen != "username_screen":
-                    logger.warning(
-                        f"[AVISO] Tela inesperada: {current_screen}. Tentando continuar...")
-                    self._save_screenshot(
-                        f"unexpected_screen_{current_screen}")
-
-                    # Tentar detectar se estamos em uma parte posterior do fluxo
-                    try:
-                        # Se encontrarmos qualquer elemento relacionado à senha, consideramos sucesso
-                        password_field = self.driver.find_element(
-                            By.XPATH, password_locators.PASSWORD_FIELD)
-                        if password_field:
-                            logger.info(
-                                "[OK] Detectado campo de senha. Username aceito!")
-                            self._save_screenshot("password_field_detected")
-                            return True
-                    except:
-                        pass
-
-                #  1. Aguarda o campo de username estar visível e interativo
-                username_field = self.wait.until(EC.presence_of_element_located(
-                    (By.XPATH, username_locators.USERNAME_FIELD)))
-                self.wait.until(EC.element_to_be_clickable(
-                    (By.XPATH, username_locators.USERNAME_FIELD)))
-
-                self.driver.execute_script(
-                    "arguments[0].scrollIntoView();", username_field)
-                self.driver.execute_script(
-                    "arguments[0].click();", username_field)
-
-                #  2. Gera novo username se não for a primeira tentativa
-                if attempt > 0:
-                    self.account_info.username = self._generate_new_username()
-                    logger.warning(
-                        f"[AVISO] Tentativa {attempt}: Username já estava em uso. Tentando {self.account_info.username}")
-
-                #  3. Insere o username e clica em "Next"
-                username_field.clear()
-                username_field.send_keys(self.account_info.username)
-                logger.info(
-                    f"[OK] Tentativa {attempt}: Testando username {self.account_info.username}")
-                self._save_screenshot(
-                    f"username_field_filled_{self.account_info.username}")
-
-                # Tirar screenshot antes de clicar em Next
-                self._save_screenshot(f"before_next_click_attempt_{attempt}")
-                self._click_next()
-                time.sleep(2)  # Aguarda verificação
-                self._save_screenshot(f"after_next_click_attempt_{attempt}")
-
-                # 4. Verificar novamente se avançamos para a tela de senha
-                current_screen = self._check_current_screen()
-                if current_screen == "password_screen":
-                    logger.info(
-                        "[OK] Avançamos para tela de senha! Username aceito.")
-                    self._save_screenshot("advanced_to_password_screen")
-                    return True
-
-                # Se ainda estamos na tela de username, realmente verificar se há mensagem de erro
-                is_username_taken = self._check_username_taken()
-                if is_username_taken:
-                    logger.warning(
-                        "[AVISO] Nome de usuário já está em uso. Tentando outro...")
-                    self._save_screenshot(f"username_taken_attempt_{attempt}")
-                    continue  # Tenta novamente com um novo username
-                else:
-                    # Esperar um pouco mais para garantir que qualquer redirecionamento ocorra
-                    logger.info(
-                        "[AVISO] Sem erro de username identificado, aguardando redirecionamento...")
-                    time.sleep(3)
-
-                    # Verificar uma última vez
-                    current_screen = self._check_current_screen()
-                    if current_screen == "password_screen":
-                        logger.info(
-                            "[OK] Redirecionado para tela de senha após espera!")
-                        self._save_screenshot("redirected_to_password")
-                        return True
-                    elif current_screen == "username_screen":
-                        # Ainda na tela de username - verificar HTML da página para presença de erro
-                        page_source = self.driver.page_source.lower()
-                        if "username is taken" in page_source or "nome de usuário já está em uso" in page_source:
-                            logger.warning(
-                                "[AVISO] Erro de username detectado no HTML da página")
-                            self._save_screenshot("username_taken_in_html")
-                            continue  # Tentar novamente
-                        else:
-                            # Talvez tenha um problema diferente, tentar clicar em Next novamente
-                            logger.info(
-                                "[AVISO] Tentando clicar em Next novamente...")
-                            self._click_next()
-                            time.sleep(2)
-
-                            # Verificar se avançamos
-                            if self._check_current_screen() == "password_screen":
-                                logger.info(
-                                    "[OK] Avançamos para senha após segundo clique!")
-                                return True
-                            else:
-                                logger.warning(
-                                    "[AVISO] Ainda na tela de username após segundo clique")
-                    else:
-                        # Avançamos para alguma outra tela
-                        logger.info(
-                            f"[OK] Avançamos para tela: {current_screen}")
-                        return True
-
-            except TimeoutException:
-                # Verificar se já avançamos para outra tela
-                self._save_screenshot(f"timeout_during_attempt_{attempt}")
-                current_screen = self._check_current_screen()
-                if current_screen == "password_screen":
-                    logger.info("[OK] Já na tela de senha! Username aceito.")
-                    return True
-
-                logger.error("[ERRO] Erro: Campo de username não encontrado!")
-                raise UsernameError(" Campo de username não apareceu na tela.")
-
-            except Exception as e:
-                self._save_screenshot(f"error_during_attempt_{attempt}")
-                logger.warning(f"[AVISO] Erro ao preencher username: {str(e)}")
-
-        self._save_screenshot("max_attempts_reached")
-        raise UsernameError(
-            "[ALERTA] Número máximo de tentativas atingido. Não foi possível encontrar um username disponível.")
-
     def _save_screenshot(self, name):
         """Salva um screenshot apenas se o modo debug estiver ativado."""
         if not DEBUG_MODE:
@@ -718,9 +627,6 @@ class AccountSetup:
     def _check_username_taken(self, timeout=3) -> bool:
         """Verifica se o username já está em uso pela presença da mensagem de erro."""
         try:
-            # Capturar screenshot antes de verificar
-            self._save_screenshot("check_username_taken_before")
-
             # Verificar mensagens de erro de username ocupado
             error_xpaths = [
                 username_locators.USERNAME_TAKEN_ERROR,
@@ -735,28 +641,24 @@ class AccountSetup:
                     if WebDriverWait(self.driver, timeout).until(
                         EC.presence_of_element_located((By.XPATH, xpath))
                     ):
-                        # Capturar screenshot quando username está ocupado
-                        self._save_screenshot("username_taken_confirmed")
+                        logger.info(
+                            "[AVISO] Mensagem de erro detectada: username já está em uso")
                         return True  # Username está em uso
                 except TimeoutException:
                     continue
 
-            # Se não encontrou nenhuma mensagem de erro, verificar se ainda estamos na tela de username
-            current_screen = self._check_current_screen()
-            if current_screen != "username_screen":
-                # Se não estamos mais na tela de username, provavelmente avançamos
-                self._save_screenshot("likely_username_accepted")
-                return False
+            # Verificar o HTML da página (método adicional)
+            page_source = self.driver.page_source.lower()
+            if "username is taken" in page_source or "nome de usuário já está em uso" in page_source:
+                logger.info(
+                    "[AVISO] Mensagem de erro detectada no HTML da página")
+                return True
 
-            # Se ainda estamos na tela de username sem mensagem de erro, pode haver algum outro problema
-            self._save_screenshot("username_screen_no_error")
             return False  # Assumimos que não há erro de username ocupado
 
         except Exception as e:
             logger.error(
                 f"[ERRO] Erro ao verificar disponibilidade do username: {str(e)}")
-            # Tirar screenshot do erro
-            self._save_screenshot("username_check_error")
             return False  # Em caso de erro, assumimos que podemos continuar
 
     def _setup_password(self):
@@ -1035,98 +937,53 @@ class AccountSetup:
             return False
 
     def _check_current_screen(self):
-        """Verifica qual tela está sendo exibida atualmente."""
+        """Detecta em qual tela estamos atualmente."""
         try:
-            # Verificar se estamos na tela de senha
+            # Detectar tela de senha
             password_elements = [
-                "//input[@type='password']",
-                "//div[contains(text(), 'Criar uma senha')]",
-                "//div[contains(text(), 'Create a password')]"
+                password_locators.PASSWORD_FIELD,
+                "//div[contains(text(), 'Create a password')]",
+                "//div[contains(text(), 'Criar uma senha')]"
             ]
-
             for element in password_elements:
                 try:
-                    if WebDriverWait(self.driver, 2).until(EC.presence_of_element_located((By.XPATH, element))):
-                        logger.info("[OK] Detectada tela de senha")
+                    if WebDriverWait(self.driver, 1).until(EC.presence_of_element_located((By.XPATH, element))):
                         return "password_screen"
-                except TimeoutException:
+                except:
                     continue
 
-            # Verificar se estamos na tela de username
+            # Detectar tela de username
             username_elements = [
-                "//input[@name='username']",
-                "//div[contains(text(), 'Criar um nome de usuário')]",
-                "//div[contains(text(), 'Create a username')]"
+                username_locators.USERNAME_FIELD,
+                "//div[contains(text(), 'Choose your Gmail address')]",
+                "//div[contains(text(), 'Escolha seu endereço do Gmail')]"
             ]
-
             for element in username_elements:
                 try:
-                    if WebDriverWait(self.driver, 2).until(EC.presence_of_element_located((By.XPATH, element))):
-                        logger.info("[OK] Detectada tela de username")
+                    if WebDriverWait(self.driver, 1).until(EC.presence_of_element_located((By.XPATH, element))):
                         return "username_screen"
-                except TimeoutException:
+                except:
                     continue
 
-            # Verificar tela de sugestões de username
+            # Detectar tela de sugestões de username
             suggestion_elements = [
-                username_locators.SUGGESTION_OPTION,
-                "//div[contains(text(), 'Choose a Gmail address')]",
-                "//div[contains(text(), 'Escolha um endereço Gmail')]",
-                "//div[contains(@role, 'radiogroup')]",
-                "//span[contains(text(), 'Create your own Gmail address')]",
-                "//span[contains(text(), 'Criar seu próprio endereço Gmail')]",
-                "//*[@id='yDmH0d']/c-wiz/div/div[2]/div/div/div/form/span/section/div/div/div[1]/div[1]/div/span/div[3]/div"
+                username_locators.CREATE_OWN_USERNAME,
+                "//div[contains(text(), 'Create your own Gmail address')]",
+                "//div[contains(text(), 'Crie seu próprio endereço do Gmail')]"
             ]
-
             for element in suggestion_elements:
                 try:
-                    if WebDriverWait(self.driver, 2).until(EC.presence_of_element_located((By.XPATH, element))):
-                        logger.info(
-                            "[OK] Detectada tela de sugestões de username")
+                    if WebDriverWait(self.driver, 1).until(EC.presence_of_element_located((By.XPATH, element))):
                         return "username_suggestion_screen"
-                except TimeoutException:
+                except:
                     continue
 
-            # Verificar se estamos na tela de informações básicas
-            basic_info_elements = [
-                "//input[@id='firstName']",
-                "//input[@id='lastName']",
-                "//input[@id='day']",
-                "//input[@id='year']",
-                "//select[@id='month']",
-                "//select[@id='gender']"
-            ]
-
-            for element in basic_info_elements:
-                try:
-                    if WebDriverWait(self.driver, 2).until(EC.presence_of_element_located((By.XPATH, element))):
-                        logger.info(
-                            "[OK] Detectada tela de informações básicas")
-                        return "basic_info_screen"
-                except TimeoutException:
-                    continue
-
-            # Tirar screenshot da tela não identificada para diagnóstico
-            self._save_screenshot("unknown_screen_detection")
-
-            # Verificar URL atual para diagnóstico adicional
-            try:
-                current_url = self.driver.current_url
-                logger.info(f"[DIAGNÓSTICO] URL atual: {current_url}")
-
-                # Tentar identificar pelo URL
-                if "signin/v2/challenge/selectchallenge" in current_url:
-                    return "verification_challenge_screen"
-                elif "signup/v2" in current_url:
-                    return "signup_screen"
-            except:
-                pass
-
-            logger.warning("[AVISO] Tela não identificada")
+            # Não conseguimos identificar a tela atual
             return "unknown_screen"
+
         except Exception as e:
-            logger.error(f"[ERRO] Erro ao verificar tela atual: {str(e)}")
-            return "error_checking_screen"
+            logger.error(f"[ERRO] Erro ao verificar a tela atual: {e}")
+            return "error_screen"
 
     def _wait_for_element(self, by, locator, timeout=5, condition=EC.presence_of_element_located):
         """Espera mais eficiente por um elemento, retorna o elemento ou None."""

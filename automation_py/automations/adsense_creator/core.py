@@ -153,6 +153,9 @@ class AdSenseCreator:
         try:
             logger.info("[INICIO] Iniciando criação da conta AdSense...")
 
+            # Verificar e limpar o arquivo de credenciais
+            self._clean_credentials_file()
+
             # Inicializar o browser primeiro
             if not self.initialize_browser(user_id):
                 raise AdSenseCreationError(
@@ -261,3 +264,129 @@ class AdSenseCreator:
                 except Exception as close_e:
                     logger.warning(
                         f"[AVISO] Erro ao fechar navegador: {str(close_e)}")
+
+    def _clean_credentials_file(self):
+        """
+        Verifica e limpa o arquivo de credenciais JSON, removendo entradas inválidas ou duplicadas.
+        """
+        try:
+            import json
+            import os
+            from datetime import datetime
+
+            logger.info(
+                "[INICIO] Verificando e limpando arquivo de credenciais...")
+
+            # Caminho para o arquivo de credenciais
+            credentials_path = "credentials/gmail.json"
+
+            # Verificar se o arquivo existe
+            if not os.path.exists(credentials_path):
+                logger.info(
+                    "[INFO] Arquivo de credenciais não existe. Criando diretório...")
+                os.makedirs(os.path.dirname(credentials_path), exist_ok=True)
+                # Criar arquivo vazio com lista vazia
+                with open(credentials_path, "w") as file:
+                    json.dump([], file, indent=4)
+                logger.info(
+                    "[OK] Arquivo de credenciais criado com lista vazia")
+                return True
+
+            # Verificar se o arquivo está vazio
+            if os.path.getsize(credentials_path) == 0:
+                logger.warning(
+                    "[AVISO] Arquivo de credenciais está vazio. Inicializando com lista vazia.")
+                with open(credentials_path, "w") as file:
+                    json.dump([], file, indent=4)
+                logger.info(
+                    "[OK] Arquivo de credenciais inicializado com lista vazia")
+                return True
+
+            # Ler o arquivo de credenciais
+            try:
+                with open(credentials_path, "r") as file:
+                    content = file.read().strip()
+                    if not content:
+                        logger.warning(
+                            "[AVISO] Arquivo de credenciais tem conteúdo vazio. Inicializando com lista vazia.")
+                        with open(credentials_path, "w") as f:
+                            json.dump([], f, indent=4)
+                        return True
+
+                    try:
+                        accounts = json.loads(content)
+                    except json.JSONDecodeError as e:
+                        logger.error(
+                            f"[ERRO] Arquivo de credenciais contém JSON inválido: {str(e)}. Recriando arquivo.")
+                        with open(credentials_path, "w") as f:
+                            json.dump([], f, indent=4)
+                        return True
+
+                    # Verificar se é uma lista
+                    if not isinstance(accounts, list):
+                        logger.warning(
+                            "[AVISO] Arquivo de credenciais não contém uma lista. Recriando arquivo.")
+                        with open(credentials_path, "w") as f:
+                            json.dump([], f, indent=4)
+                        return True
+
+                    # Verificar e limpar entradas inválidas ou duplicadas
+                    valid_accounts = []
+                    email_set = set()
+
+                    for account in accounts:
+                        # Verificar se é um dicionário
+                        if not isinstance(account, dict):
+                            logger.warning(
+                                f"[AVISO] Entrada inválida encontrada (não é um dicionário): {account}")
+                            continue
+
+                        # Verificar se tem email
+                        email = account.get("email")
+                        if not email or not isinstance(email, str) or "@" not in email:
+                            logger.warning(
+                                f"[AVISO] Conta sem email válido encontrada: {account}")
+                            continue
+
+                        # Verificar se é duplicado
+                        if email in email_set:
+                            logger.warning(
+                                f"[AVISO] Email duplicado encontrado: {email}")
+                            continue
+
+                        # Adicionar à lista de contas válidas
+                        email_set.add(email)
+                        valid_accounts.append(account)
+
+                    # Salvar arquivo limpo
+                    if len(valid_accounts) != len(accounts):
+                        logger.info(
+                            f"[INFO] Removidas {len(accounts) - len(valid_accounts)} entradas inválidas ou duplicadas")
+                        with open(credentials_path, "w") as file:
+                            json.dump(valid_accounts, file, indent=4)
+                        logger.info(
+                            "[OK] Arquivo de credenciais limpo e salvo")
+
+                    logger.info(
+                        f"[OK] Verificação concluída. Arquivo contém {len(valid_accounts)} contas válidas")
+                    return True
+
+            except Exception as e:
+                logger.error(
+                    f"[ERRO] Erro ao verificar arquivo de credenciais: {str(e)}")
+                # Em caso de erro, tentar recriar o arquivo
+                try:
+                    with open(credentials_path, "w") as file:
+                        json.dump([], file, indent=4)
+                    logger.info(
+                        "[OK] Arquivo de credenciais recriado após erro")
+                    return True
+                except Exception as e2:
+                    logger.error(
+                        f"[ERRO] Falha ao recriar arquivo de credenciais: {str(e2)}")
+                    return False
+
+        except Exception as e:
+            logger.error(
+                f"[ERRO] Falha ao limpar arquivo de credenciais: {str(e)}")
+            return False

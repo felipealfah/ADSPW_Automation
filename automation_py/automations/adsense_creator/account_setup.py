@@ -15,9 +15,6 @@ from selenium.common.exceptions import (
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
 
-# Importar a API de SMS
-from apis.sms_api import SMSAPI
-
 from .exceptions import (
     AccountSetupError,
     LoginError,
@@ -70,6 +67,52 @@ class AccountSetup:
         self.max_retries = 3
         self.retry_delay = 2
 
+        # Verificar se temos os dados necessários e, se não, tentar buscar do arquivo JSON
+        if not self.account_data.get("password"):
+            self._load_account_data_from_json()
+
+    def _load_account_data_from_json(self):
+        """Carrega dados da conta do arquivo JSON se necessário."""
+        try:
+            import json
+            import os
+
+            # Verificar se temos pelo menos o email para fazer a correspondência
+            email = self.account_data.get("email")
+            if not email:
+                logger.warning(
+                    "[AVISO] Email não fornecido, não é possível buscar dados do JSON")
+                return
+
+            # Caminho para o arquivo de credenciais
+            credentials_path = "credentials/gmail.json"
+
+            if os.path.exists(credentials_path):
+                with open(credentials_path, "r") as file:
+                    gmail_accounts = json.load(file)
+
+                    # Buscar a conta pelo email
+                    for account in gmail_accounts:
+                        if account.get("email") == email:
+                            # Atualizar os dados da conta com os dados do JSON
+                            for key, value in account.items():
+                                if key not in self.account_data or not self.account_data[key]:
+                                    self.account_data[key] = value
+
+                            logger.info(
+                                f"[OK] Dados da conta atualizados a partir do arquivo JSON para o email: {email}")
+                            return
+
+                    logger.warning(
+                        f"[AVISO] Email {email} não encontrado no arquivo JSON")
+            else:
+                logger.warning(
+                    f"[AVISO] Arquivo de credenciais {credentials_path} não encontrado")
+
+        except Exception as e:
+            logger.error(
+                f"[ERRO] Erro ao carregar dados da conta do arquivo JSON: {str(e)}")
+
     def _create_account_info(self) -> AdSenseAccountInfo:
         """Cria objeto AdSenseAccountInfo com os dados fornecidos."""
         country = self.account_data.get("country", "")
@@ -88,24 +131,68 @@ class AccountSetup:
         try:
             logger.info("[INICIO] Iniciando configuração da conta AdSense...")
 
+            # Verificar arquivo de credenciais para diagnóstico
+            self._check_credentials_file()
+
             # Navegar para a página de inscrição do AdSense
             if not self._execute_with_retry(self._navigate_to_adsense_signup):
                 return False
+
+            # Verificar se estamos na tela de senha após navegação inicial
+            self._execute_with_retry(self._handle_password_screen)
+            logger.info(
+                "[INFO] Verificação de tela de senha após navegação inicial concluída")
+
+            # Verificar se estamos na tela de verificação de telefone
+            if self._check_for_phone_verification():
+                logger.info(
+                    "[INFO] Tela de verificação de telefone detectada após navegação inicial")
+                if not self._handle_phone_verification():
+                    logger.error(
+                        "[ERRO] Falha na verificação de telefone após navegação inicial")
+                    return False
 
             # Preencher o formulário de inscrição
             self.state = SetupState.SIGNUP_FORM
             if not self._execute_with_retry(self._complete_signup_form):
                 return False
 
+            # Verificar se estamos na tela de senha após o formulário de inscrição
+            self._execute_with_retry(self._handle_password_screen)
+            logger.info(
+                "[INFO] Verificação de tela de senha após formulário de inscrição concluída")
+
+            # Verificar novamente se estamos na tela de verificação de telefone
+            if self._check_for_phone_verification():
+                logger.info(
+                    "[INFO] Tela de verificação de telefone detectada após formulário de inscrição")
+                if not self._handle_phone_verification():
+                    logger.error(
+                        "[ERRO] Falha na verificação de telefone após formulário de inscrição")
+                    return False
+
             # Preencher informações do site
             self.state = SetupState.WEBSITE_INFO
             if not self._execute_with_retry(self._fill_website_info):
                 return False
 
+            # Verificar mais uma vez se estamos na tela de verificação de telefone
+            if self._check_for_phone_verification():
+                logger.info(
+                    "[INFO] Tela de verificação de telefone detectada após preenchimento de informações do site")
+                if not self._handle_phone_verification():
+                    logger.error(
+                        "[ERRO] Falha na verificação de telefone após preenchimento de informações do site")
+                    return False
+
             # Parar aqui conforme solicitado - não prosseguir com as etapas seguintes
             logger.info(
                 "[INFO] Automação pausada após preencher o campo de URL do site, conforme solicitado")
             self.state = SetupState.COMPLETED
+
+            # Atualizar o arquivo de credenciais com as informações do AdSense
+            self._update_credentials_file()
+
             return True
 
         except Exception as e:
@@ -114,6 +201,68 @@ class AccountSetup:
             self.state = SetupState.FAILED
             raise AccountSetupError(
                 f"Falha na configuração da conta: {str(e)}")
+
+    def _check_credentials_file(self):
+        """Verifica e registra informações sobre o arquivo de credenciais para diagnóstico."""
+        try:
+            import json
+            import os
+
+            credentials_path = "credentials/gmail.json"
+
+            if not os.path.exists(credentials_path):
+                logger.warning(
+                    f"[DIAGNÓSTICO] Arquivo de credenciais {credentials_path} não encontrado")
+                return
+
+            if os.path.getsize(credentials_path) == 0:
+                logger.warning(
+                    f"[DIAGNÓSTICO] Arquivo de credenciais {credentials_path} está vazio")
+                return
+
+            with open(credentials_path, "r") as file:
+                try:
+                    gmail_accounts = json.load(file)
+
+                    if not isinstance(gmail_accounts, list):
+                        logger.warning(
+                            f"[DIAGNÓSTICO] Arquivo de credenciais não contém uma lista válida")
+                        return
+
+                    account_count = len(gmail_accounts)
+                    logger.info(
+                        f"[DIAGNÓSTICO] Arquivo de credenciais contém {account_count} contas")
+
+                    # Verificar se temos o email atual nas credenciais
+                    email = self.account_data.get("email")
+                    if email:
+                        found = False
+                        for account in gmail_accounts:
+                            if account.get("email") == email:
+                                found = True
+                                has_password = bool(account.get("password"))
+                                logger.info(
+                                    f"[DIAGNÓSTICO] Email {email} encontrado no arquivo JSON. Tem senha: {has_password}")
+                                break
+
+                        if not found:
+                            logger.warning(
+                                f"[DIAGNÓSTICO] Email {email} NÃO encontrado no arquivo JSON")
+
+                    # Verificar a primeira conta como exemplo
+                    if account_count > 0:
+                        first_account = gmail_accounts[0]
+                        keys = list(first_account.keys())
+                        logger.info(
+                            f"[DIAGNÓSTICO] Campos disponíveis na primeira conta: {keys}")
+
+                except json.JSONDecodeError:
+                    logger.error(
+                        f"[DIAGNÓSTICO] Arquivo de credenciais contém JSON inválido")
+
+        except Exception as e:
+            logger.error(
+                f"[DIAGNÓSTICO] Erro ao verificar arquivo de credenciais: {str(e)}")
 
     def _execute_with_retry(self, func) -> bool:
         """Executa uma função com tentativas em caso de falha."""
@@ -148,11 +297,6 @@ class AccountSetup:
             if DEBUG_MODE:
                 self._save_screenshot("adsense_signup_page")
 
-            # Registrar URL atual para debug
-            current_url = self.driver.current_url
-            logger.info(
-                f"[INFO] URL atual após navegação inicial: {current_url}")
-
             # Verificar se estamos na tela de seleção de conta
             if self._check_for_account_selection_screen():
                 logger.info("[INFO] Detectada tela de seleção de conta")
@@ -163,70 +307,16 @@ class AccountSetup:
                 time.sleep(3)
                 self._wait_for_page_load()
 
-                # Verificar se fomos redirecionados para a tela de reCAPTCHA
-                current_url = self.driver.current_url
-                if "challenge/recaptcha" in current_url:
-                    logger.info(
-                        "[INFO] Redirecionado para tela de reCAPTCHA após seleção de conta")
-                    # Tratar a tela de reCAPTCHA
-                    if self._handle_recaptcha_screen():
-                        logger.info(
-                            "[OK] Tela de reCAPTCHA tratada com sucesso")
-                    else:
-                        logger.warning(
-                            "[AVISO] Falha ao tratar tela de reCAPTCHA")
-
                 # Capturar screenshot após selecionar conta
                 if DEBUG_MODE:
                     self._save_screenshot("after_account_selection")
 
-            # Verificar se estamos na tela de senha
-            current_url = self.driver.current_url
-            if "signin/challenge/pwd" in current_url:
-                logger.info("[INFO] Redirecionado para tela de senha")
-                if self._handle_password_screen():
-                    logger.info("[OK] Tela de senha tratada com sucesso")
-                else:
-                    logger.warning("[AVISO] Falha ao tratar tela de senha")
-
-            # Verificar se estamos na tela de verificação por telefone
-            current_url = self.driver.current_url
-            verification_patterns = ["speedbump/idvreenable",
-                                     "signin/v2/challenge/selection", "challenge/ipp"]
-            if any(pattern in current_url for pattern in verification_patterns):
-                logger.info(
-                    "[INFO] Redirecionado para tela de verificação por telefone")
-                if self._handle_phone_verification_screen():
-                    logger.info(
-                        "[OK] Tela de verificação por telefone tratada com sucesso")
-                else:
-                    logger.warning(
-                        "[AVISO] Falha ao tratar tela de verificação por telefone")
-
-            # Verificar se estamos em alguma tela de verificação não tratada
-            current_url = self.driver.current_url
-            if "challenge" in current_url or "signin" in current_url:
-                logger.info(
-                    f"[INFO] Detectada tela de verificação não específica: {current_url}")
-                # Tentar tratar possível loop de redirecionamento
-                if self._check_and_handle_redirect_loop():
-                    logger.info("[OK] Tela de verificação tratada com sucesso")
-                else:
-                    # Tentar navegar diretamente para o AdSense como último recurso
-                    try:
-                        logger.info(
-                            "[INFO] Tentando navegar diretamente para o AdSense...")
-                        adsense_url = "https://adsense.google.com/adsense/overview"
-                        self.driver.get(adsense_url)
-                        time.sleep(5)
-                        self._wait_for_page_load()
-                    except Exception as e:
-                        logger.warning(
-                            f"[AVISO] Erro ao tentar navegar para o AdSense: {str(e)}")
+                # Verificar e tratar recaptcha se necessário
+                self._check_and_handle_recaptcha()
 
             # Registrar URL atual para debug
             current_url = self.driver.current_url
-            logger.info(f"[INFO] URL final após navegação: {current_url}")
+            logger.info(f"[INFO] URL atual após navegação: {current_url}")
 
             logger.info(
                 "[OK] Navegação para página de inscrição do AdSense concluída")
@@ -246,10 +336,9 @@ class AccountSetup:
                     "return document.readyState") == "complete"
             )
             return True
-        except Exception as e:
+        except Exception:
             logger.warning(
-                f"[AVISO] Timeout ao aguardar carregamento da página: {str(e)}")
-            # Não propagar o erro, apenas retornar False
+                "[AVISO] Timeout ao aguardar carregamento da página")
             return False
 
     def _complete_signup_form(self) -> bool:
@@ -275,21 +364,11 @@ class AccountSetup:
                     time.sleep(3)
                     self._wait_for_page_load()
 
-                    # Verificar se fomos redirecionados para a tela de reCAPTCHA
-                    current_url = self.driver.current_url
-                    if "challenge/recaptcha" in current_url:
-                        logger.info(
-                            "[INFO] Redirecionado para tela de reCAPTCHA após seleção de conta")
-                        # Tratar a tela de reCAPTCHA
-                        if self._handle_recaptcha_screen():
-                            logger.info(
-                                "[OK] Tela de reCAPTCHA tratada com sucesso")
-                            # Aguardar redirecionamento após reCAPTCHA
-                            time.sleep(5)
-                            self._wait_for_page_load()
-                        else:
-                            logger.warning(
-                                "[AVISO] Falha ao tratar tela de reCAPTCHA")
+                    # Verificar e tratar recaptcha se necessário
+                    self._check_and_handle_recaptcha()
+
+            # Verificar e tratar recaptcha novamente se necessário
+            self._check_and_handle_recaptcha()
 
             # Capturar screenshot para debug
             if DEBUG_MODE:
@@ -311,6 +390,9 @@ class AccountSetup:
         try:
             # Esperar o formulário carregar
             time.sleep(5)
+
+            # Verificar e tratar recaptcha se necessário
+            self._check_and_handle_recaptcha()
 
             logger.info("[INFO] Preenchendo o campo de URL do site...")
 
@@ -743,7 +825,6 @@ class AccountSetup:
         except Exception as e:
             logger.warning(
                 f"[AVISO] Erro ao verificar tela de seleção de conta: {str(e)}")
-            # Mesmo com erro, retornar False em vez de propagar a exceção
             return False
 
     def _select_account(self) -> bool:
@@ -817,15 +898,6 @@ class AccountSetup:
     def _click_safely(self, element):
         """Tenta clicar em um elemento de várias formas para garantir que o clique funcione."""
         try:
-            # Verificar se o driver ainda está conectado
-            try:
-                # Uma operação simples para verificar se o driver está conectado
-                self.driver.current_url
-            except Exception as conn_e:
-                logger.error(
-                    f"[ERRO] Conexão com o driver perdida: {str(conn_e)}")
-                return False
-
             # Método 1: Clique normal
             element.click()
             return True
@@ -834,14 +906,6 @@ class AccountSetup:
                 f"[AVISO] Clique normal falhou: {str(e1)}, tentando alternativas...")
 
             try:
-                # Verificar novamente se o driver está conectado
-                try:
-                    self.driver.current_url
-                except Exception:
-                    logger.error(
-                        "[ERRO] Conexão com o driver perdida durante tentativa de clique alternativo")
-                    return False
-
                 # Método 2: Clique via JavaScript
                 self.driver.execute_script("arguments[0].click();", element)
                 logger.info("[INFO] Clique via JavaScript executado")
@@ -851,14 +915,6 @@ class AccountSetup:
                     f"[AVISO] Clique via JavaScript falhou: {str(e2)}, tentando alternativas...")
 
                 try:
-                    # Verificar novamente se o driver está conectado
-                    try:
-                        self.driver.current_url
-                    except Exception:
-                        logger.error(
-                            "[ERRO] Conexão com o driver perdida durante tentativa de clique via ActionChains")
-                        return False
-
                     # Método 3: Mover para o elemento e clicar
                     actions = ActionChains(self.driver)
                     actions.move_to_element(element).click().perform()
@@ -1124,11 +1180,6 @@ class AccountSetup:
                         time.sleep(3)
                         self._wait_for_page_load()
 
-                        # Verificar se apareceu a tela de seleção de conta
-                        if self._handle_account_selection_screen():
-                            logger.info(
-                                "[OK] Tela de seleção de conta tratada com sucesso após clicar no botão OK")
-
                         # Capturar screenshot após clicar no botão
                         if DEBUG_MODE:
                             self._save_screenshot("after_ok_button")
@@ -1142,11 +1193,6 @@ class AccountSetup:
                         "[OK] Botão de OK clicado com sucesso usando JavaScript")
                     time.sleep(3)
                     self._wait_for_page_load()
-
-                    # Verificar se apareceu a tela de seleção de conta
-                    if self._handle_account_selection_screen():
-                        logger.info(
-                            "[OK] Tela de seleção de conta tratada com sucesso após clicar no botão OK via JavaScript")
 
                     if DEBUG_MODE:
                         self._save_screenshot("after_ok_button_js")
@@ -1167,11 +1213,6 @@ class AccountSetup:
                         "[OK] Botão de OK (ripple) clicado com sucesso usando JavaScript")
                     time.sleep(3)
                     self._wait_for_page_load()
-
-                    # Verificar se apareceu a tela de seleção de conta
-                    if self._handle_account_selection_screen():
-                        logger.info(
-                            "[OK] Tela de seleção de conta tratada com sucesso após clicar no ripple")
 
                     if DEBUG_MODE:
                         self._save_screenshot("after_ripple_button_js")
@@ -1196,11 +1237,6 @@ class AccountSetup:
                     time.sleep(3)
                     self._wait_for_page_load()
 
-                    # Verificar se apareceu a tela de seleção de conta
-                    if self._handle_account_selection_screen():
-                        logger.info(
-                            "[OK] Tela de seleção de conta tratada com sucesso após clicar no botão submit")
-
                     if DEBUG_MODE:
                         self._save_screenshot("after_submit_button_js")
 
@@ -1217,11 +1253,6 @@ class AccountSetup:
                     "[OK] Formulário submetido com sucesso usando JavaScript")
                 time.sleep(3)
                 self._wait_for_page_load()
-
-                # Verificar se apareceu a tela de seleção de conta
-                if self._handle_account_selection_screen():
-                    logger.info(
-                        "[OK] Tela de seleção de conta tratada com sucesso após submeter o formulário")
 
                 if DEBUG_MODE:
                     self._save_screenshot("after_form_submit_js")
@@ -1240,1189 +1271,1236 @@ class AccountSetup:
                 f"[ERRO] Erro ao tentar clicar no botão de OK: {str(e)}")
             return False
 
-    def _handle_account_selection_screen(self) -> bool:
+    def _check_and_handle_recaptcha(self) -> bool:
         """
-        Verifica se apareceu a tela de seleção de conta após deslogar
-        e seleciona a conta correta se necessário.
+        Verifica se há um recaptcha na página e aguarda sua resolução automática.
+
+        Returns:
+            bool: True se o recaptcha foi detectado e tratado, False caso contrário
+        """
+        try:
+            # Verificar pela URL
+            current_url = self.driver.current_url
+            is_recaptcha = False
+
+            # Verificar se a URL contém indicadores de recaptcha/challenge
+            if "recaptcha" in current_url or "challenge" in current_url:
+                is_recaptcha = True
+                logger.info(
+                    f"[INFO] Detectada tela de recaptcha via URL: {current_url}")
+
+            # Verificar elementos visíveis de recaptcha
+            recaptcha_elements = [
+                "//iframe[contains(@src, 'recaptcha')]",
+                "//div[contains(@class, 'recaptcha')]",
+                "//div[@id='recaptcha']",
+                "//div[contains(@id, 'captcha')]",
+                "//iframe[contains(@title, 'reCAPTCHA')]"
+            ]
+
+            for element in recaptcha_elements:
+                if not is_recaptcha and self._check_for_element(By.XPATH, element, timeout=2):
+                    is_recaptcha = True
+                    logger.info(
+                        f"[INFO] Detectada tela de recaptcha via elemento: {element}")
+                    break
+
+            # Se detectou recaptcha, tratar
+            if is_recaptcha:
+                logger.info(
+                    "[INFO] Aguardando 45 segundos para resolução automática do recaptcha...")
+
+                # Salvar screenshot da tela de recaptcha
+                if DEBUG_MODE:
+                    self._save_screenshot("recaptcha_challenge_screen")
+
+                # Aguardar 45 segundos para a resolução automática do recaptcha
+                time.sleep(45)
+
+                # Verificar se o recaptcha foi resolvido
+                new_url = self.driver.current_url
+                logger.info(
+                    f"[INFO] URL após aguardar resolução do recaptcha: {new_url}")
+
+                # Salvar screenshot após a espera
+                if DEBUG_MODE:
+                    self._save_screenshot("after_recaptcha_wait")
+
+                # Clicar no botão "Avançar" após a resolução do recaptcha
+                # XPath específico fornecido
+                advance_button_xpath = "/html/body/div[1]/div[1]/div[2]/c-wiz/div/div[3]/div/div[1]/div/div/button"
+
+                logger.info(
+                    "[INFO] Tentando clicar no botão 'Avançar' após resolução do recaptcha...")
+
+                button_clicked = False
+
+                # Método 1: Tentar encontrar o botão pelo XPath específico e clicar diretamente
+                try:
+                    if self._check_for_element(By.XPATH, advance_button_xpath, timeout=5):
+                        button = self.driver.find_element(
+                            By.XPATH, advance_button_xpath)
+
+                        # Registrar o texto do botão para confirmação
+                        button_text = button.text.strip() if button.text else "Sem texto"
+                        logger.info(
+                            f"[INFO] Botão encontrado com texto: '{button_text}'")
+
+                        # Tentar clicar diretamente
+                        try:
+                            button.click()
+                            logger.info(
+                                "[OK] Botão 'Avançar' clicado com sucesso após recaptcha")
+                            button_clicked = True
+                        except Exception as e:
+                            logger.warning(
+                                f"[AVISO] Falha ao clicar diretamente no botão: {str(e)}")
+
+                            # Tentar via JavaScript
+                            try:
+                                self.driver.execute_script(
+                                    "arguments[0].click();", button)
+                                logger.info(
+                                    "[OK] Botão 'Avançar' clicado com sucesso via JavaScript após recaptcha")
+                                button_clicked = True
+                            except Exception as js_e:
+                                logger.warning(
+                                    f"[AVISO] Falha ao clicar via JavaScript no botão: {str(js_e)}")
+                except Exception as e:
+                    logger.warning(
+                        f"[AVISO] Erro ao tentar localizar o botão pelo XPath: {str(e)}")
+
+                # Método 2: Tentar encontrar por texto e classes
+                if not button_clicked:
+                    try:
+                        # Tentar localizar pelo texto e parte da classe
+                        alt_xpath = "//button[contains(@class, 'VfPpkd-LgbsSe') and .//span[contains(text(), 'Avançar')]]"
+                        if self._check_for_element(By.XPATH, alt_xpath, timeout=3):
+                            button = self.driver.find_element(
+                                By.XPATH, alt_xpath)
+                            self.driver.execute_script(
+                                "arguments[0].click();", button)
+                            logger.info(
+                                "[OK] Botão 'Avançar' alternativo clicado com sucesso via JavaScript")
+                            button_clicked = True
+                    except Exception as e:
+                        logger.warning(
+                            f"[AVISO] Erro ao tentar método alternativo: {str(e)}")
+
+                # Método 3: Usar JavaScript para localizar e clicar em qualquer botão com texto "Avançar"
+                if not button_clicked:
+                    try:
+                        logger.info(
+                            "[INFO] Tentando método JavaScript genérico para clicar no botão 'Avançar'...")
+                        success = self.driver.execute_script("""
+                            // Tentar encontrar botão pelo texto "Avançar"
+                            var buttons = document.querySelectorAll('button');
+                            for (var i = 0; i < buttons.length; i++) {
+                                if (buttons[i].innerText.includes('Avançar') || 
+                                    buttons[i].textContent.includes('Avançar')) {
+                                    buttons[i].click();
+                                    return true;
+                                }
+                            }
+                            
+                            // Tentar por spans dentro de botões
+                            var spans = document.querySelectorAll('button span');
+                            for (var i = 0; i < spans.length; i++) {
+                                if (spans[i].innerText.includes('Avançar') || 
+                                    spans[i].textContent.includes('Avançar')) {
+                                    spans[i].closest('button').click();
+                                    return true;
+                                }
+                            }
+                            
+                            // Tentar pelo XPath específico fornecido
+                            var xpathResult = document.evaluate(
+                                "/html/body/div[1]/div[1]/div[2]/c-wiz/div/div[3]/div/div[1]/div/div/button", 
+                                document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null
+                            );
+                            
+                            if (xpathResult && xpathResult.singleNodeValue) {
+                                xpathResult.singleNodeValue.click();
+                                return true;
+                            }
+                            
+                            return false;
+                        """)
+
+                        if success:
+                            logger.info(
+                                "[OK] Botão 'Avançar' clicado com sucesso via JavaScript genérico")
+                            button_clicked = True
+                        else:
+                            logger.warning(
+                                "[AVISO] Método JavaScript genérico não encontrou o botão 'Avançar'")
+                    except Exception as e:
+                        logger.warning(
+                            f"[AVISO] Erro no método JavaScript genérico: {str(e)}")
+
+                # Salvar screenshot após tentar clicar no botão
+                if DEBUG_MODE:
+                    self._save_screenshot("after_advance_button_click")
+
+                # Aguardar carregamento completo da página após clicar no botão
+                self._wait_for_page_load()
+                time.sleep(3)
+
+                # Verificar e lidar com a tela de senha que aparece após o captcha
+                self._execute_with_retry(self._handle_password_screen)
+                logger.info(
+                    "[INFO] Verificação de tela de senha após captcha concluída")
+
+                return True
+
+            return False
+
+        except Exception as e:
+            logger.warning(f"[AVISO] Erro ao verificar recaptcha: {str(e)}")
+            return False
+
+    def _handle_password_screen(self) -> bool:
+        """
+        Lida com a tela de senha que aparece após resolver o captcha.
+        Insere a senha da conta e clica no botão Avançar.
+
+        Returns:
+            bool: True se a senha foi inserida com sucesso e o botão foi clicado
+        """
+        try:
+            logger.info("[INFO] Verificando tela de senha após captcha...")
+
+            # Aguardar um pouco para garantir que a página carregou
+            time.sleep(3)
+
+            # Lista de possíveis XPaths para o campo de senha
+            password_field_xpaths = [
+                login_locators.PASSWORD_FIELD,  # XPath principal
+                "//input[@type='password']",  # Genérico por tipo
+                "//input[contains(@name, 'password')]",  # Por nome
+                "//input[contains(@id, 'password')]",  # Por ID
+                # Por aria-label
+                "//input[contains(@aria-label, 'senha') or contains(@aria-label, 'password')]"
+            ]
+
+            # Verificar se estamos na tela de senha tentando encontrar o campo de senha
+            password_field = None
+            password_field_found = False
+
+            for xpath in password_field_xpaths:
+                if self._check_for_element(By.XPATH, xpath, timeout=2):
+                    password_field = self.driver.find_element(By.XPATH, xpath)
+                    password_field_found = True
+                    logger.info(
+                        f"[INFO] Campo de senha encontrado com XPath: {xpath}")
+                    break
+
+            if not password_field_found:
+                logger.info(
+                    "[INFO] Tela de senha não detectada, continuando fluxo normal")
+                return True
+
+            # Capturar screenshot para debug
+            if DEBUG_MODE:
+                self._save_screenshot("password_screen")
+
+            # Detectar o email atual na página
+            current_email = self._get_current_email_from_page()
+            if current_email:
+                logger.info(
+                    f"[INFO] Email detectado na página: {current_email}")
+                # Se o email detectado for diferente do email nos dados da conta, atualizar
+                if self.account_data.get("email") != current_email:
+                    logger.warning(
+                        f"[AVISO] Email detectado ({current_email}) é diferente do email nos dados da conta ({self.account_data.get('email')})")
+                    self.account_data["email"] = current_email
+
+            # Obter a senha do account_data
+            password = self.account_data.get("password", "")
+            email = self.account_data.get("email", "")
+
+            # Se a senha não estiver disponível no account_data, tentar buscar do arquivo JSON
+            if not password:
+                logger.info(
+                    "[INFO] Senha não encontrada nos dados da conta, tentando buscar do arquivo JSON...")
+                try:
+                    import json
+                    import os
+
+                    # Caminho para o arquivo de credenciais
+                    credentials_path = "credentials/gmail.json"
+
+                    if os.path.exists(credentials_path):
+                        with open(credentials_path, "r") as file:
+                            gmail_accounts = json.load(file)
+
+                            # Verificar se temos o email para fazer a correspondência
+                            if email:
+                                # Buscar a conta pelo email
+                                for account in gmail_accounts:
+                                    if account.get("email") == email:
+                                        password = account.get("password", "")
+                                        logger.info(
+                                            f"[OK] Senha encontrada no arquivo JSON para o email: {email}")
+                                        break
+
+                            # Se não encontrou pelo email ou não temos o email, usar a primeira conta disponível
+                            if not password and gmail_accounts:
+                                password = gmail_accounts[0].get(
+                                    "password", "")
+                                logger.info(
+                                    "[OK] Usando senha da primeira conta disponível no arquivo JSON")
+                except Exception as e:
+                    logger.error(
+                        f"[ERRO] Erro ao tentar buscar senha do arquivo JSON: {str(e)}")
+
+            if not password:
+                logger.error(
+                    "[ERRO] Senha não encontrada nos dados da conta nem no arquivo JSON")
+                return False
+
+            logger.info(
+                f"[INFO] Inserindo senha para a conta {email if email else 'atual'}")
+
+            # Preencher o campo de senha
+            self._fill_input_safely(password_field, password)
+
+            # Capturar screenshot após preencher a senha
+            if DEBUG_MODE:
+                self._save_screenshot("password_filled")
+
+            logger.info("[INFO] Senha inserida, procurando botão Avançar...")
+
+            # Lista de possíveis XPaths para o botão Avançar/Próximo/Next
+            next_button_xpaths = [
+                login_locators.NEXT_BUTTON,  # XPath principal
+                # Texto do botão
+                "//button[contains(., 'Next') or contains(., 'Próximo') or contains(., 'Avançar')]",
+                # Classe comum do botão
+                "//button[contains(@class, 'VfPpkd-LgbsSe')]",
+                # Div com role=button
+                "//div[contains(@role, 'button') and (contains(., 'Next') or contains(., 'Próximo') or contains(., 'Avançar'))]",
+                "//button[@type='submit']"  # Botão de tipo submit
+            ]
+
+            # Tentar clicar no botão Avançar usando diferentes XPaths
+            button_clicked = False
+
+            for xpath in next_button_xpaths:
+                if button_clicked:
+                    break
+
+                if self._check_for_element(By.XPATH, xpath, timeout=2):
+                    next_button = self.driver.find_element(By.XPATH, xpath)
+
+                    # Tentar clicar no botão
+                    if self._click_safely(next_button):
+                        logger.info(
+                            f"[OK] Botão Avançar clicado com sucesso usando XPath: {xpath}")
+                        button_clicked = True
+
+                        # Aguardar carregamento da página
+                        time.sleep(3)
+                        self._wait_for_page_load()
+
+                        # Capturar screenshot após clicar no botão
+                        if DEBUG_MODE:
+                            self._save_screenshot("after_password_next_button")
+                    else:
+                        logger.warning(
+                            f"[AVISO] Falha ao clicar no botão usando XPath: {xpath}")
+
+            # Se não conseguiu clicar em nenhum botão, tentar com JavaScript
+            if not button_clicked:
+                logger.info(
+                    "[INFO] Tentando clicar no botão Avançar com JavaScript genérico...")
+
+                try:
+                    success = self.driver.execute_script("""
+                        // Tentar encontrar botão pelo texto
+                        var buttons = document.querySelectorAll('button');
+                        for (var i = 0; i < buttons.length; i++) {
+                            if (buttons[i].innerText.includes('Avançar') || 
+                                buttons[i].innerText.includes('Próximo') || 
+                                buttons[i].innerText.includes('Next')) {
+                                buttons[i].click();
+                                return true;
+                            }
+                        }
+                        
+                        // Tentar por spans dentro de botões
+                        var spans = document.querySelectorAll('button span');
+                        for (var i = 0; i < spans.length; i++) {
+                            if (spans[i].innerText.includes('Avançar') || 
+                                spans[i].innerText.includes('Próximo') || 
+                                spans[i].innerText.includes('Next')) {
+                                spans[i].closest('button').click();
+                                return true;
+                            }
+                        }
+                        
+                        // Tentar qualquer botão de submit
+                        var submitButton = document.querySelector('button[type="submit"]');
+                        if (submitButton) {
+                            submitButton.click();
+                            return true;
+                        }
+                        
+                        return false;
+                    """)
+
+                    if success:
+                        logger.info(
+                            "[OK] Botão Avançar clicado com sucesso via JavaScript genérico")
+                        button_clicked = True
+
+                        # Aguardar carregamento da página
+                        time.sleep(3)
+                        self._wait_for_page_load()
+
+                        # Capturar screenshot após clicar no botão
+                        if DEBUG_MODE:
+                            self._save_screenshot(
+                                "after_password_next_button_js")
+                    else:
+                        logger.warning(
+                            "[AVISO] Método JavaScript genérico não encontrou o botão Avançar")
+                except Exception as e:
+                    logger.warning(
+                        f"[AVISO] Erro no método JavaScript genérico: {str(e)}")
+
+            # Verificar se após o login apareceu a tela de verificação de telefone
+            if button_clicked:
+                time.sleep(3)  # Aguardar carregamento completo
+                if self._check_for_phone_verification():
+                    logger.info(
+                        "[INFO] Tela de verificação de telefone detectada após login")
+                    return self._handle_phone_verification()
+
+            return button_clicked
+
+        except Exception as e:
+            logger.error(
+                f"[ERRO] Falha ao lidar com a tela de senha: {str(e)}")
+            return False
+
+    def _get_current_email_from_page(self):
+        """
+        Detecta o email atual mostrado na página.
+
+        Returns:
+            str: O email detectado ou None se não for possível detectar
+        """
+        try:
+            # Aguardar um pouco para garantir que a página carregou completamente
+            time.sleep(2)
+
+            # Lista de possíveis XPaths para encontrar o email na página
+            email_xpaths = [
+                "//div[contains(@class, 'email') and contains(text(), '@')]",
+                "//div[contains(text(), '@gmail.com')]",
+                "//span[contains(text(), '@gmail.com')]",
+                "//p[contains(text(), '@gmail.com')]",
+                "//h1[contains(text(), '@gmail.com')]",
+                "//h2[contains(text(), '@gmail.com')]",
+                "//input[@type='email' and @value]",
+                "//div[contains(@class, 'account-email')]"
+            ]
+
+            # Tentar encontrar o email usando os XPaths
+            for xpath in email_xpaths:
+                try:
+                    if self._check_for_element(By.XPATH, xpath, timeout=1):
+                        email_element = self.driver.find_element(
+                            By.XPATH, xpath)
+                        text = email_element.text.strip(
+                        ) if email_element.text else email_element.get_attribute("value")
+
+                        if text and "@" in text:
+                            # Extrair apenas o email se houver texto adicional
+                            import re
+                            email_match = re.search(
+                                r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+', text)
+                            if email_match:
+                                email = email_match.group(0)
+                                logger.info(
+                                    f"[OK] Email detectado na página: {email}")
+                                return email
+                except Exception:
+                    continue
+
+            # Se não encontrou pelos XPaths, tentar pelo título da página ou URL
+            try:
+                page_title = self.driver.title
+                current_url = self.driver.current_url
+
+                # Verificar no título da página
+                if "@" in page_title:
+                    import re
+                    email_match = re.search(
+                        r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+', page_title)
+                    if email_match:
+                        email = email_match.group(0)
+                        logger.info(
+                            f"[OK] Email detectado no título da página: {email}")
+                        return email
+
+                # Verificar na URL
+                if "authuser=" in current_url:
+                    import re
+                    email_match = re.search(r'authuser=([^&]+)', current_url)
+                    if email_match:
+                        email = email_match.group(1)
+                        if "@" in email:
+                            logger.info(
+                                f"[OK] Email detectado na URL: {email}")
+                            return email
+            except Exception:
+                pass
+
+            # Se não encontrou por métodos diretos, tentar com JavaScript
+            try:
+                email = self.driver.execute_script("""
+                    // Tentar encontrar elementos com email
+                    var elements = document.querySelectorAll('*');
+                    for (var i = 0; i < elements.length; i++) {
+                        var text = elements[i].textContent || elements[i].innerText;
+                        if (text && text.includes('@gmail.com')) {
+                            // Extrair email com regex
+                            var match = text.match(/[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\\.[a-zA-Z0-9-.]+/);
+                            if (match) return match[0];
+                        }
+                    }
+                    
+                    // Tentar encontrar no código fonte
+                    var html = document.documentElement.outerHTML;
+                    var match = html.match(/[a-zA-Z0-9_.+-]+@gmail\\.com/);
+                    if (match) return match[0];
+                    
+                    return null;
+                """)
+
+                if email:
+                    logger.info(
+                        f"[OK] Email detectado via JavaScript: {email}")
+                    return email
+            except Exception:
+                pass
+
+            logger.info("[INFO] Não foi possível detectar o email na página")
+            return None
+        except Exception as e:
+            logger.error(
+                f"[ERRO] Erro ao tentar detectar o email na página: {str(e)}")
+            return None
+
+    def _update_credentials_file(self):
+        """Atualiza o arquivo de credenciais com os dados da conta AdSense."""
+        try:
+            import json
+            import os
+
+            # Verificar se temos os dados necessários
+            email = self.account_data.get("email")
+            if not email:
+                logger.warning(
+                    "[AVISO] Email não fornecido, não é possível atualizar o arquivo de credenciais")
+                return False
+
+            # Tentar detectar o email real na página
+            real_email = self._get_current_email_from_page()
+            if real_email and real_email != email:
+                logger.warning(
+                    f"[AVISO] Email detectado na página ({real_email}) é diferente do email nos dados da conta ({email})")
+                # Atualizar o email nos dados da conta
+                self.account_data["email"] = real_email
+                email = real_email
+
+            # Caminho para o arquivo de credenciais
+            credentials_path = "credentials/gmail.json"
+
+            if not os.path.exists(credentials_path):
+                logger.warning(
+                    f"[AVISO] Arquivo de credenciais {credentials_path} não encontrado")
+                return False
+
+            # Ler o arquivo de credenciais
+            try:
+                with open(credentials_path, "r") as file:
+                    content = file.read().strip()
+                    if not content:
+                        logger.warning(
+                            "[AVISO] Arquivo de credenciais está vazio")
+                        return False
+
+                    gmail_accounts = json.loads(content)
+
+                    # Verificar se é uma lista
+                    if not isinstance(gmail_accounts, list):
+                        logger.warning(
+                            "[AVISO] Arquivo de credenciais não contém uma lista válida")
+                        return False
+
+                    # Buscar a conta pelo email
+                    account_found = False
+                    for i, account in enumerate(gmail_accounts):
+                        if account.get("email") == email:
+                            account_found = True
+
+                            # Atualizar os dados da conta com informações do AdSense
+                            gmail_accounts[i]["adsense_setup_completed"] = True
+                            gmail_accounts[i]["adsense_setup_date"] = time.strftime(
+                                "%Y-%m-%d %H:%M:%S")
+
+                            # Adicionar informações do site se disponíveis
+                            if hasattr(self, "adsense_info") and self.adsense_info:
+                                if hasattr(self.adsense_info, "website_url") and self.adsense_info.website_url:
+                                    gmail_accounts[i]["adsense_website"] = self.adsense_info.website_url
+
+                            logger.info(
+                                f"[OK] Dados da conta {email} atualizados no arquivo de credenciais com informações do AdSense")
+                            break
+
+                    if not account_found:
+                        logger.warning(
+                            f"[AVISO] Email {email} não encontrado no arquivo de credenciais")
+                        return False
+
+                    # Salvar o arquivo atualizado
+                    with open(credentials_path, "w") as file:
+                        json.dump(gmail_accounts, file, indent=4)
+
+                    logger.info(
+                        f"[OK] Arquivo de credenciais atualizado com sucesso: {credentials_path}")
+                    return True
+
+            except Exception as e:
+                logger.error(
+                    f"[ERRO] Erro ao atualizar arquivo de credenciais: {str(e)}")
+                return False
+
+        except Exception as e:
+            logger.error(
+                f"[ERRO] Erro ao atualizar arquivo de credenciais: {str(e)}")
+            return False
+
+    def _check_for_phone_verification(self) -> bool:
+        """
+        Verifica se estamos na tela de verificação de telefone.
+
+        Returns:
+            bool: True se estamos na tela de verificação de telefone
+        """
+        try:
+            # Lista de possíveis XPaths para o campo de telefone
+            phone_field_xpaths = [
+                "//input[@type='tel']",
+                "//input[contains(@id, 'phone')]",
+                "//input[contains(@name, 'phone')]",
+                "//input[contains(@aria-label, 'phone') or contains(@aria-label, 'telefone')]"
+            ]
+
+            # Verificar se algum dos campos de telefone está presente
+            for xpath in phone_field_xpaths:
+                if self._check_for_element(By.XPATH, xpath, timeout=2):
+                    logger.info(
+                        f"[INFO] Campo de telefone encontrado com XPath: {xpath}")
+                    return True
+
+            # Verificar por textos que indicam verificação de telefone
+            phone_verification_texts = [
+                "//div[contains(text(), 'Verify your phone number')]",
+                "//div[contains(text(), 'Verifique seu número de telefone')]",
+                "//span[contains(text(), 'phone verification')]",
+                "//span[contains(text(), 'verificação de telefone')]"
+            ]
+
+            for xpath in phone_verification_texts:
+                if self._check_for_element(By.XPATH, xpath, timeout=2):
+                    logger.info(
+                        f"[INFO] Texto de verificação de telefone encontrado com XPath: {xpath}")
+                    return True
+
+            logger.info("[INFO] Tela de verificação de telefone não detectada")
+            return False
+
+        except Exception as e:
+            logger.error(
+                f"[ERRO] Erro ao verificar tela de verificação de telefone: {str(e)}")
+            return False
+
+    def _handle_phone_verification(self) -> bool:
+        """
+        Lida com a verificação de telefone usando a classe PhoneVerification do módulo gmail_creator.
+
+        Returns:
+            bool: True se a verificação foi bem-sucedida
+        """
+        try:
+            logger.info(
+                "[INICIO] Iniciando processo de verificação de telefone para AdSense...")
+
+            # Importar a classe PhoneVerification e inicializar o phone_manager
+            from automations.gmail_creator.phone_verify import PhoneVerification
+            from apis.phone_manager import PhoneManager
+            from selenium.webdriver.common.by import By
+            from selenium.webdriver.support.ui import WebDriverWait
+            from selenium.webdriver.support import expected_conditions as EC
+            import time
+
+            # Inicializar o phone_manager
+            phone_manager = PhoneManager()
+
+            # Obter a instância do sms_api diretamente do phone_manager
+            sms_api = phone_manager.sms_api
+
+            if not sms_api:
+                logger.error("[ERRO] Não foi possível obter a API de SMS")
+                return False
+
+            # Criar instância de PhoneVerification
+            phone_verify = PhoneVerification(self.driver, sms_api)
+
+            # Configurar o phone_manager
+            phone_verify.phone_manager = phone_manager
+
+            # Verificar se temos um número de telefone nos dados da conta para reutilizar
+            if self.account_data.get("phone"):
+                logger.info(
+                    f"[INFO] Tentando reutilizar número de telefone: {self.account_data.get('phone')}")
+                phone_verify.predefined_number = self.account_data.get("phone")
+                phone_verify.predefined_country_code = self.account_data.get(
+                    "country_code")
+                phone_verify.predefined_activation_id = self.account_data.get(
+                    "activation_id")
+                phone_verify.reuse_number = True
+
+            # Implementar fluxo direto de verificação de telefone sem verificar a tela
+            try:
+                # Definir contador de tentativas para números de telefone
+                phone_attempts = 0
+                max_phone_attempts = 3
+
+                while phone_attempts < max_phone_attempts:
+                    phone_attempts += 1
+                    logger.info(
+                        f"[ATUALIZANDO] Tentativa {phone_attempts} de {max_phone_attempts} para verificação de telefone")
+
+                    # 1. Obter um novo número de telefone
+                    logger.info(
+                        "[INFO] Obtendo número de telefone para verificação...")
+                    phone_verify.current_activation = phone_verify._get_new_number()
+
+                    if not phone_verify.current_activation:
+                        logger.error(
+                            "[ERRO] Falha ao obter número de telefone")
+                        if phone_attempts < max_phone_attempts:
+                            logger.info(
+                                "[INFO] Tentando novamente com outro número...")
+                            continue
+                        return False
+
+                    logger.info(
+                        f"[OK] Número obtido: {phone_verify.current_activation.phone_number}")
+
+                    # 2. Submeter o número de telefone no formulário usando o XPath específico
+                    logger.info(
+                        "[INFO] Inserindo número de telefone no formulário...")
+
+                    # XPath específico para o campo de telefone
+                    phone_input_xpath = "/html/body/div[1]/div[1]/div[2]/c-wiz/div/div[2]/div/div/div/form/span/section[3]/div/div/div/div/div[2]/div[1]//input[@type='tel']"
+
+                    try:
+                        # Aguardar até que o campo de telefone esteja visível e clicável
+                        wait = WebDriverWait(self.driver, 10)
+                        phone_input = wait.until(
+                            EC.element_to_be_clickable(
+                                (By.XPATH, phone_input_xpath))
+                        )
+
+                        # Garantir que o campo está visível
+                        self.driver.execute_script(
+                            "arguments[0].scrollIntoView(true);", phone_input)
+                        time.sleep(1)
+
+                        # Limpar o campo
+                        phone_input.clear()
+
+                        # Inserir o número de telefone com o formato correto (+DDI)
+                        phone_number = phone_verify.current_activation.phone_number
+
+                        # Garantir que o número tenha o formato correto com + na frente
+                        if not phone_number.startswith('+'):
+                            phone_number = '+' + phone_number
+
+                        logger.info(
+                            f"[INFO] Formatando número para: {phone_number}")
+
+                        # Preencher o número com pequenas pausas para simular digitação humana
+                        for char in phone_number:
+                            phone_input.send_keys(char)
+                            time.sleep(0.1)
+
+                        logger.info(
+                            f"[OK] Número {phone_number} inserido no campo")
+
+                        # Aguardar um momento antes de clicar no botão
+                        time.sleep(1)
+
+                        # Procurar o botão "Next" ou "Avançar" ou "Próximo"
+                        next_button_xpaths = [
+                            "//button[contains(., 'Next') or contains(., 'Próximo') or contains(., 'Avançar')]",
+                            "//button[contains(@class, 'VfPpkd-LgbsSe')]",
+                            "//button[@type='submit']",
+                            "/html/body/div[1]/div[1]/div[2]/c-wiz/div/div[2]/div/div/div/form/div/div/div/button"
+                        ]
+
+                        button_clicked = False
+                        for xpath in next_button_xpaths:
+                            try:
+                                next_button = wait.until(
+                                    EC.element_to_be_clickable(
+                                        (By.XPATH, xpath))
+                                )
+                                next_button.click()
+                                logger.info(
+                                    f"[OK] Botão Next clicado usando XPath: {xpath}")
+                                button_clicked = True
+                                break
+                            except Exception as e:
+                                logger.warning(
+                                    f"[AVISO] Não foi possível clicar no botão com XPath {xpath}: {str(e)}")
+
+                        if not button_clicked:
+                            # Tentar clicar com JavaScript
+                            try:
+                                self.driver.execute_script("""
+                                    var buttons = document.querySelectorAll('button');
+                                    for (var i = 0; i < buttons.length; i++) {
+                                        if (buttons[i].innerText.includes('Avançar') || 
+                                            buttons[i].innerText.includes('Próximo') || 
+                                            buttons[i].innerText.includes('Next')) {
+                                            buttons[i].click();
+                                            return true;
+                                        }
+                                    }
+                                    return false;
+                                """)
+                                logger.info(
+                                    "[OK] Botão Next clicado via JavaScript")
+                                button_clicked = True
+                            except Exception as e:
+                                logger.warning(
+                                    f"[AVISO] Não foi possível clicar no botão via JavaScript: {str(e)}")
+
+                        if not button_clicked:
+                            logger.error(
+                                "[ERRO] Não foi possível clicar no botão Next")
+                            phone_verify._cancel_current_number()
+                            if phone_attempts < max_phone_attempts:
+                                logger.info(
+                                    "[INFO] Tentando novamente com outro número...")
+                                continue
+                            return False
+
+                        # Aguardar processamento
+                        time.sleep(5)
+
+                        # Verificar se há mensagens de erro após inserir o número
+                        error_xpaths = [
+                            "//div[contains(text(), 'This phone number format is not recognized')]",
+                            "//div[contains(text(), 'This phone number has already been used too many times')]",
+                            "//div[contains(text(), 'Please enter a valid phone number')]",
+                            "//div[contains(@class, 'error') and string-length(text()) > 0]"
+                        ]
+
+                        error_found = False
+                        for xpath in error_xpaths:
+                            try:
+                                error_element = self.driver.find_element(
+                                    By.XPATH, xpath)
+                                error_text = error_element.text.strip()
+                                if error_text:
+                                    logger.warning(
+                                        f"[AVISO] Erro detectado após inserir número: '{error_text}'")
+                                    error_found = True
+                                    break
+                            except:
+                                pass
+
+                        if error_found:
+                            logger.warning(
+                                "[AVISO] Número rejeitado devido a erro")
+                            phone_verify._cancel_current_number()
+                            if phone_attempts < max_phone_attempts:
+                                logger.info(
+                                    "[INFO] Tentando novamente com outro número...")
+                                continue
+                            return False
+
+                        # Verificar se apareceu o campo de código
+                        code_input_xpath = "//input[contains(@aria-label, 'code') or contains(@aria-label, 'código') or @type='number']"
+                        code_input_found = False
+                        try:
+                            wait.until(EC.presence_of_element_located(
+                                (By.XPATH, code_input_xpath)))
+                            logger.info("[OK] Campo de código SMS detectado")
+                            code_input_found = True
+                        except Exception as e:
+                            logger.warning(
+                                f"[AVISO] Campo de código SMS não detectado: {str(e)}")
+
+                        if not code_input_found:
+                            # Verificar se ainda estamos na tela de telefone (número rejeitado)
+                            try:
+                                if self.driver.find_element(By.XPATH, phone_input_xpath).is_displayed():
+                                    logger.warning(
+                                        "[AVISO] Ainda na tela de telefone. Número rejeitado.")
+                                    phone_verify._cancel_current_number()
+                                    if phone_attempts < max_phone_attempts:
+                                        logger.info(
+                                            "[INFO] Tentando novamente com outro número...")
+                                        continue
+                                    return False
+                            except:
+                                pass
+
+                    except Exception as e:
+                        logger.error(
+                            f"[ERRO] Falha ao inserir número de telefone: {str(e)}")
+                        phone_verify._cancel_current_number()
+                        if phone_attempts < max_phone_attempts:
+                            logger.info(
+                                "[INFO] Tentando novamente com outro número...")
+                            continue
+                        return False
+
+                    # 3. Aguardar e inserir o código SMS
+                    logger.info("[INFO] Aguardando código SMS...")
+
+                    # Obter o código SMS
+                    activation_id = phone_verify.current_activation.activation_id
+                    sms_code = phone_verify.sms_api.get_sms_code(
+                        activation_id,
+                        # Tentar por 2 minutos (12 * 10 segundos)
+                        max_attempts=12,
+                        interval=10       # Verificar a cada 10 segundos
+                    )
+
+                    if not sms_code:
+                        logger.error(
+                            "[ERRO] Não foi possível obter o código SMS")
+                        phone_verify._cancel_current_number()
+                        if phone_attempts < max_phone_attempts:
+                            logger.info(
+                                "[INFO] Tentando novamente com outro número...")
+                            continue
+                        return False
+
+                    logger.info(f"[OK] Código SMS recebido: {sms_code}")
+
+                    # Inserir o código SMS
+                    try:
+                        # Encontrar o campo de código
+                        code_input = wait.until(
+                            EC.element_to_be_clickable(
+                                (By.XPATH, code_input_xpath))
+                        )
+
+                        # Limpar o campo
+                        code_input.clear()
+
+                        # Inserir o código
+                        for char in sms_code:
+                            code_input.send_keys(char)
+                            time.sleep(0.1)
+
+                        logger.info(
+                            f"[OK] Código {sms_code} inserido no campo")
+
+                        # Clicar no botão "Verify" ou "Verificar"
+                        verify_button_xpaths = [
+                            "//button[contains(., 'Verify') or contains(., 'Verificar')]",
+                            "//button[contains(@class, 'VfPpkd-LgbsSe')]",
+                            "//button[@type='submit']"
+                        ]
+
+                        button_clicked = False
+                        for xpath in verify_button_xpaths:
+                            try:
+                                verify_button = wait.until(
+                                    EC.element_to_be_clickable(
+                                        (By.XPATH, xpath))
+                                )
+                                verify_button.click()
+                                logger.info(
+                                    f"[OK] Botão Verify clicado usando XPath: {xpath}")
+                                button_clicked = True
+                                break
+                            except Exception as e:
+                                logger.warning(
+                                    f"[AVISO] Não foi possível clicar no botão com XPath {xpath}: {str(e)}")
+
+                        if not button_clicked:
+                            # Tentar clicar com JavaScript
+                            try:
+                                self.driver.execute_script("""
+                                    var buttons = document.querySelectorAll('button');
+                                    for (var i = 0; i < buttons.length; i++) {
+                                        if (buttons[i].innerText.includes('Verify') || 
+                                            buttons[i].innerText.includes('Verificar') || 
+                                            buttons[i].innerText.includes('Next') ||
+                                            buttons[i].innerText.includes('Próximo')) {
+                                            buttons[i].click();
+                                            return true;
+                                        }
+                                    }
+                                    return false;
+                                """)
+                                logger.info(
+                                    "[OK] Botão Verify clicado via JavaScript")
+                                button_clicked = True
+                            except Exception as e:
+                                logger.warning(
+                                    f"[AVISO] Não foi possível clicar no botão via JavaScript: {str(e)}")
+
+                        # Aguardar processamento
+                        time.sleep(5)
+
+                        # Verificar se há mensagens de erro após inserir o código
+                        code_error_xpaths = [
+                            "//div[contains(text(), 'Wrong code')]",
+                            "//div[contains(text(), 'Code is incorrect')]",
+                            "//div[contains(text(), 'That code didn')]",
+                            "//div[contains(@class, 'error') and string-length(text()) > 0]"
+                        ]
+
+                        error_found = False
+                        for xpath in code_error_xpaths:
+                            try:
+                                error_element = self.driver.find_element(
+                                    By.XPATH, xpath)
+                                error_text = error_element.text.strip()
+                                if error_text:
+                                    logger.warning(
+                                        f"[AVISO] Erro detectado após inserir código: '{error_text}'")
+                                    error_found = True
+                                    break
+                            except:
+                                pass
+
+                        if error_found:
+                            logger.warning(
+                                "[AVISO] Código rejeitado devido a erro")
+                            phone_verify._cancel_current_number()
+                            if phone_attempts < max_phone_attempts:
+                                logger.info(
+                                    "[INFO] Tentando novamente com outro número...")
+                                continue
+                            return False
+
+                        # Verificar se ainda estamos na tela de código (código rejeitado)
+                        try:
+                            if code_input.is_displayed():
+                                logger.warning(
+                                    "[AVISO] Ainda na tela de código. Código rejeitado.")
+                                phone_verify._cancel_current_number()
+                                if phone_attempts < max_phone_attempts:
+                                    logger.info(
+                                        "[INFO] Tentando novamente com outro número...")
+                                    continue
+                                return False
+                        except:
+                            pass
+
+                        # Atualizar o status do número para "usado com sucesso"
+                        try:
+                            phone_verify.sms_api.set_status(
+                                activation_id, 8)  # 8 = usado com sucesso
+                            logger.info(
+                                "[OK] Status do número atualizado para 'usado com sucesso'")
+                        except Exception as e:
+                            logger.warning(
+                                f"[AVISO] Erro ao atualizar status do número: {str(e)}")
+
+                        # Se chegou aqui, a verificação foi bem-sucedida
+                        logger.info(
+                            "[OK] Verificação de telefone concluída com sucesso")
+
+                        # Verificar se estamos na tela de confirmação de informações de recuperação
+                        if self._check_and_handle_recovery_options_screen():
+                            logger.info(
+                                "[OK] Tela de confirmação de informações de recuperação tratada com sucesso")
+
+                        # Obter os dados do telefone verificado
+                        phone_data = phone_verify.get_current_phone_data()
+                        if phone_data:
+                            # Atualizar os dados da conta com as informações do telefone
+                            self.account_data["phone"] = phone_data.get(
+                                "phone_number")
+                            self.account_data["country_code"] = phone_data.get(
+                                "country_code")
+                            self.account_data["activation_id"] = phone_data.get(
+                                "activation_id")
+                            self.account_data["country_name"] = phone_data.get(
+                                "country_name")
+
+                            # Atualizar o arquivo de credenciais com os novos dados
+                            self._update_credentials_file()
+
+                            logger.info(
+                                f"[OK] Dados de telefone atualizados: {phone_data.get('phone_number')}")
+
+                        return True
+
+                    except Exception as e:
+                        logger.error(
+                            f"[ERRO] Falha ao inserir código SMS: {str(e)}")
+                        phone_verify._cancel_current_number()
+                        if phone_attempts < max_phone_attempts:
+                            logger.info(
+                                "[INFO] Tentando novamente com outro número...")
+                            continue
+                        return False
+
+                # Se chegou aqui, todas as tentativas falharam
+                logger.error(
+                    f"[ERRO] Todas as {max_phone_attempts} tentativas de verificação de telefone falharam")
+                return False
+
+            except Exception as e:
+                logger.error(
+                    f"[ERRO] Erro no fluxo direto de verificação: {str(e)}")
+                # Tentar cancelar o número se houver falha
+                if hasattr(phone_verify, 'current_activation') and phone_verify.current_activation:
+                    phone_verify._cancel_current_number()
+                return False
+
+        except Exception as e:
+            logger.error(
+                f"[ERRO] Erro durante verificação de telefone: {str(e)}")
+            return False
+
+    def _check_and_handle_recovery_options_screen(self) -> bool:
+        """
+        Verifica e trata a tela de confirmação de informações de recuperação após verificação de telefone.
+        Clica no botão "Salvar" para continuar.
 
         Returns:
             bool: True se a tela foi detectada e tratada com sucesso
         """
         try:
-            # Aguardar um momento para a página carregar
+            # Aguardar um pouco para garantir que a página carregou completamente
             time.sleep(3)
 
-            # XPath para o título "Escolha uma conta" (ou equivalentes em outros idiomas)
-            account_selection_title_xpath = "/html/body/div[1]/div[1]/div[2]/c-wiz/div/div[1]/div"
-
-            # Lista de textos possíveis para o título em diferentes idiomas
-            title_texts = [
-                "Escolha uma conta",  # Português
-                "Choose an account",   # Inglês
-                "Elige una cuenta",    # Espanhol
-                "Choisissez un compte",  # Francês
-                "Konto auswählen"      # Alemão
-            ]
-
-            # Verificar se a tela de seleção de conta está presente
-            screen_detected = False
-
-            # Método 1: Verificar pelo XPath específico
-            if self._check_for_element(By.XPATH, account_selection_title_xpath, timeout=5):
-                title_element = self.driver.find_element(
-                    By.XPATH, account_selection_title_xpath)
-                title_text = title_element.text.strip()
-
-                for text in title_texts:
-                    if text in title_text:
-                        logger.info(
-                            f"[DETECTADO] Tela de seleção de conta encontrada com texto: '{title_text}'")
-                        screen_detected = True
-                        break
-
-            # Método 2: Verificar por textos em qualquer lugar da página
-            if not screen_detected:
-                for text in title_texts:
-                    text_xpath = f"//h1[contains(text(), '{text}')]"
-                    if self._check_for_element(By.XPATH, text_xpath, timeout=3):
-                        logger.info(
-                            f"[DETECTADO] Tela de seleção de conta encontrada com texto: '{text}'")
-                        screen_detected = True
-                        break
-
-            # Se não detectou a tela de seleção, não precisa fazer nada
-            if not screen_detected:
-                logger.info("[INFO] Tela de seleção de conta não detectada")
-                return False
-
-            # Capturar screenshot para debug
-            if DEBUG_MODE:
-                self._save_screenshot("account_selection_screen")
-
-            # Tentar clicar na primeira conta da lista (que deve ser a conta do usuário)
-            account_item_xpath = "/html/body/div[1]/div[1]/div[2]/c-wiz/div/div[2]/div/div/div/form/span/section/div/div/div/div/ul/li[1]/div"
-
-            # Verificar se o elemento da conta existe
-            if not self._check_for_element(By.XPATH, account_item_xpath, timeout=5):
-                logger.warning(
-                    "[AVISO] Não foi possível encontrar o elemento da conta")
-
-                # Tentar uma abordagem alternativa - procurar pelo email
-                if self.account_data.get("email"):
-                    email = self.account_data.get("email")
-                    email_xpath = f"//div[@data-email='{email}' or contains(text(), '{email}')]"
-
-                    if self._check_for_element(By.XPATH, email_xpath, timeout=3):
-                        logger.info(
-                            f"[INFO] Encontrada conta com email '{email}'")
-                        account_item_xpath = email_xpath
-                    else:
-                        # Tentar abordagem genérica - primeira conta na lista
-                        generic_xpath = "//div[contains(@class, 'LbOduc')]"
-                        if self._check_for_element(By.XPATH, generic_xpath, timeout=3):
-                            logger.info(
-                                "[INFO] Usando seletor genérico para a primeira conta")
-                            account_item_xpath = generic_xpath
-                        else:
-                            logger.warning(
-                                "[AVISO] Não foi possível encontrar nenhuma conta na lista")
-                            return False
-
-            # Clicar na conta
-            account_element = self.driver.find_element(
-                By.XPATH, account_item_xpath)
-            if self._click_safely(account_element):
+            # Verificar URL atual para confirmar que estamos na página de opções de recuperação
+            current_url = self.driver.current_url
+            if "recoveryoptions" in current_url or "gds.google.com" in current_url:
                 logger.info(
-                    "[OK] Conta selecionada com sucesso na tela de seleção")
+                    "[INFO] Detectada tela de confirmação de informações de recuperação")
 
-                # Aguardar redirecionamento após selecionar a conta
-                time.sleep(5)
-                self._wait_for_page_load()
-
-                # Capturar screenshot após selecionar a conta
+                # Capturar screenshot para debug
                 if DEBUG_MODE:
-                    self._save_screenshot("after_account_selection")
-
-                # Verificar e tratar a tela de reCAPTCHA que pode aparecer após a seleção da conta
-                if self._handle_recaptcha_screen():
-                    logger.info("[OK] Tela de reCAPTCHA tratada com sucesso")
-
-                return True
-            else:
-                logger.warning(
-                    "[AVISO] Falha ao clicar na conta na tela de seleção")
-                return False
-
-        except Exception as e:
-            logger.error(
-                f"[ERRO] Erro ao tratar tela de seleção de conta: {str(e)}")
-            return False
-
-    def _handle_recaptcha_screen(self) -> bool:
-        """
-        Trata a tela de reCAPTCHA que aparece após a seleção da conta.
-        Aguarda 45 segundos para permitir que a solução externa resolva o reCAPTCHA,
-        e então clica no botão "Avançar".
-
-        Returns:
-            bool: True se o botão "Avançar" foi clicado com sucesso
-        """
-        try:
-            logger.info(
-                "[INFO] Verificando se estamos na tela de reCAPTCHA...")
-
-            # Verificar pela URL se estamos na página de reCAPTCHA
-            current_url = self.driver.current_url
-            if "challenge/recaptcha" not in current_url:
-                logger.info(
-                    "[INFO] Não estamos na tela de reCAPTCHA (verificação por URL)")
-                return False
-
-            logger.info(f"[INFO] URL de reCAPTCHA detectada: {current_url}")
-
-            # Aguardar para verificar se o reCAPTCHA aparece
-            time.sleep(3)
-
-            # XPath do botão "Avançar"
-            next_button_xpath = "/html/body/div[1]/div[1]/div[2]/c-wiz/div/div[3]/div/div[1]/div/div/button"
-
-            # Verificar se estamos na tela de reCAPTCHA (presença do botão "Avançar")
-            button_found = False
-            if self._check_for_element(By.XPATH, next_button_xpath, timeout=5):
-                button_found = True
-                logger.info(
-                    "[INFO] Botão 'Avançar' encontrado pelo XPath específico")
-            else:
-                # Tentar uma abordagem alternativa - procurar pelo texto do botão
-                alternative_next_button_xpath = "//button[contains(.//span, 'Avançar') or contains(.//span, 'Next')]"
-
-                if self._check_for_element(By.XPATH, alternative_next_button_xpath, timeout=3):
-                    next_button_xpath = alternative_next_button_xpath
-                    button_found = True
-                    logger.info("[INFO] Botão 'Avançar' encontrado pelo texto")
-                else:
-                    logger.warning(
-                        "[AVISO] Botão 'Avançar' não encontrado na tela de reCAPTCHA")
-
-            # Se não encontrou o botão mas estamos na URL de reCAPTCHA, vamos aguardar mesmo assim
-            if not button_found:
-                logger.info(
-                    "[INFO] Na URL de reCAPTCHA mas botão não encontrado. Aguardando mesmo assim...")
-
-            # Capturar screenshot da tela de reCAPTCHA
-            if DEBUG_MODE:
-                self._save_screenshot("recaptcha_screen")
-
-            logger.info(
-                "[INFO] Tela de reCAPTCHA detectada. Aguardando 45 segundos para resolução externa...")
-
-            # Aguardar 45 segundos para permitir que a solução externa resolva o reCAPTCHA
-            time.sleep(45)
-
-            # Se não encontramos o botão antes, tentar novamente após a espera
-            if not button_found:
-                if self._check_for_element(By.XPATH, next_button_xpath, timeout=5):
-                    button_found = True
-                    logger.info(
-                        "[INFO] Botão 'Avançar' encontrado após espera")
-                else:
-                    alternative_next_button_xpath = "//button[contains(.//span, 'Avançar') or contains(.//span, 'Next')]"
-                    if self._check_for_element(By.XPATH, alternative_next_button_xpath, timeout=3):
-                        next_button_xpath = alternative_next_button_xpath
-                        button_found = True
-                        logger.info(
-                            "[INFO] Botão 'Avançar' encontrado pelo texto após espera")
-
-            # Se ainda não encontrou o botão, verificar se a página mudou (pode ter sido resolvido automaticamente)
-            if not button_found:
-                current_url_after_wait = self.driver.current_url
-                if current_url_after_wait != current_url:
-                    logger.info(
-                        f"[INFO] Página mudou automaticamente após espera. Nova URL: {current_url_after_wait}")
-                    # Verificar se fomos redirecionados para a tela de senha
-                    if self._handle_password_screen():
-                        logger.info(
-                            "[OK] Tela de inserção de senha tratada com sucesso após redirecionamento automático")
-                    return True
-                else:
-                    logger.warning(
-                        "[AVISO] Não foi possível encontrar o botão 'Avançar' e a página não mudou")
-                    return False
-
-            # Clicar no botão "Avançar"
-            next_button = self.driver.find_element(By.XPATH, next_button_xpath)
-            if self._click_safely(next_button):
-                logger.info(
-                    "[OK] Botão 'Avançar' clicado com sucesso na tela de reCAPTCHA")
-
-                # Aguardar redirecionamento após clicar no botão
-                time.sleep(5)
-                self._wait_for_page_load()
-
-                # Capturar screenshot após clicar no botão
-                if DEBUG_MODE:
-                    self._save_screenshot("after_recaptcha_next_button")
-
-                # Verificar e tratar a tela de inserção de senha que aparece após o reCAPTCHA
-                if self._handle_password_screen():
-                    logger.info(
-                        "[OK] Tela de inserção de senha tratada com sucesso")
-
-                return True
-            else:
-                logger.warning(
-                    "[AVISO] Falha ao clicar no botão 'Avançar' na tela de reCAPTCHA")
-                return False
-
-        except Exception as e:
-            logger.error(f"[ERRO] Erro ao tratar tela de reCAPTCHA: {str(e)}")
-            return False
-
-    def _handle_password_screen(self) -> bool:
-        """
-        Trata a tela de inserção de senha que aparece após a tela de reCAPTCHA.
-        Busca a senha correspondente ao email no arquivo gmail.json,
-        preenche o campo de senha e clica no botão "Avançar".
-
-        Returns:
-            bool: True se a senha foi inserida e o botão foi clicado com sucesso
-        """
-        try:
-            logger.info(
-                "[INFO] Verificando se estamos na tela de inserção de senha...")
-
-            # Aguardar para verificar se a tela de senha aparece
-            time.sleep(3)
-
-            # Verificar pela URL se estamos na página de senha
-            current_url = self.driver.current_url
-            is_password_page = False
-
-            if "signin/challenge/pwd" in current_url:
-                logger.info(
-                    f"[INFO] URL de página de senha detectada: {current_url}")
-                is_password_page = True
-
-            # XPath do campo de senha
-            password_field_xpath = "/html/body/div[1]/div[1]/div[2]/c-wiz/div/div[2]/div/div/div/form/span/section[2]/div/div/div[1]/div[1]/div/div/div/div/div[1]/div/div[1]/input"
-
-            # Verificar se estamos na tela de inserção de senha
-            if not is_password_page and not self._check_for_element(By.XPATH, password_field_xpath, timeout=5):
-                # Tentar uma abordagem alternativa - procurar por qualquer campo de senha
-                alternative_password_field_xpath = "//input[@type='password']"
-
-                if not self._check_for_element(By.XPATH, alternative_password_field_xpath, timeout=3):
-                    logger.info(
-                        "[INFO] Não estamos na tela de inserção de senha")
-                    return False
-                else:
-                    password_field_xpath = alternative_password_field_xpath
-                    is_password_page = True
-            else:
-                is_password_page = True
-
-            # Capturar screenshot da tela de senha
-            if DEBUG_MODE:
-                self._save_screenshot("password_screen")
-
-            # Obter o email atual da conta - várias estratégias
-            current_email = None
-
-            # Estratégia 1: Tentar obter dos dados da conta
-            if self.account_data and self.account_data.get("email"):
-                current_email = self.account_data.get("email")
-                logger.info(
-                    f"[INFO] Email encontrado nos dados da conta: {current_email}")
-
-            # Estratégia 2: Tentar extrair da URL (se presente)
-            if not current_email:
-                try:
-                    # Verificar se o email está na URL (como parte do AccountChooser)
-                    import re
-                    email_match = re.search(r'Email=([^&]+)', current_url)
-                    if email_match:
-                        current_email = email_match.group(1)
-                        logger.info(
-                            f"[INFO] Email extraído da URL: {current_email}")
-                except Exception as e:
-                    logger.warning(
-                        f"[AVISO] Erro ao tentar extrair email da URL: {str(e)}")
-
-            # Estratégia 3: Tentar encontrar na página
-            if not current_email:
-                try:
-                    # Tentar encontrar o email exibido na página
-                    email_element_xpath = "//div[contains(@class, 'bCAAsb')]"
-                    if self._check_for_element(By.XPATH, email_element_xpath, timeout=3):
-                        email_element = self.driver.find_element(
-                            By.XPATH, email_element_xpath)
-                        displayed_email = email_element.text.strip()
-                        if '@' in displayed_email:
-                            current_email = displayed_email
-                            logger.info(
-                                f"[INFO] Email encontrado na página: {current_email}")
-                except Exception as e:
-                    logger.warning(
-                        f"[AVISO] Erro ao tentar encontrar email na página: {str(e)}")
-
-            # Estratégia 4: Usar email fixo do arquivo gmail.json se todas as estratégias falharem
-            if not current_email:
-                logger.warning(
-                    "[AVISO] Não foi possível determinar o email da conta. Tentando usar email fixo do arquivo gmail.json")
-                # Usar o último email do arquivo gmail.json
-                try:
-                    import json
-                    import os
-
-                    # Caminho para o arquivo gmail.json
-                    gmail_json_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-                                                   "credentials", "gmail.json")
-
-                    if os.path.exists(gmail_json_path):
-                        with open(gmail_json_path, 'r', encoding='utf-8') as file:
-                            accounts = json.load(file)
-                            if accounts and len(accounts) > 0:
-                                # Usar o último email da lista (mais recente)
-                                current_email = accounts[-1].get("email")
-                                logger.info(
-                                    f"[INFO] Usando último email do arquivo gmail.json: {current_email}")
-                except Exception as e:
-                    logger.warning(
-                        f"[AVISO] Erro ao tentar obter email do arquivo gmail.json: {str(e)}")
-
-            if not current_email:
-                logger.warning(
-                    "[AVISO] Email não encontrado por nenhum método")
-                return False
-
-            logger.info(f"[INFO] Buscando senha para o email: {current_email}")
-
-            # Buscar a senha correspondente no arquivo gmail.json
-            password = self._get_password_from_gmail_json(current_email)
-            if not password:
-                logger.warning(
-                    f"[AVISO] Senha não encontrada para o email: {current_email}")
-                return False
-
-            logger.info("[INFO] Senha encontrada. Preenchendo o campo...")
-
-            # Preencher o campo de senha
-            try:
-                password_field = self.driver.find_element(
-                    By.XPATH, password_field_xpath)
-                if not self._fill_input_safely(password_field, password):
-                    logger.warning(
-                        "[AVISO] Falha ao preencher o campo de senha")
-                    return False
-
-                logger.info("[OK] Campo de senha preenchido com sucesso")
-            except Exception as e:
-                logger.warning(
-                    f"[AVISO] Erro ao preencher campo de senha: {str(e)}")
-                return False
-
-            # Aguardar um momento após preencher a senha
-            time.sleep(1)
-
-            # Procurar o botão "Avançar" para confirmar a senha
-            next_button_xpath = "//button[contains(.//span, 'Avançar') or contains(.//span, 'Next') or contains(.//span, 'Próxima') or contains(.//span, 'Próximo')]"
-
-            if not self._check_for_element(By.XPATH, next_button_xpath, timeout=5):
-                logger.warning(
-                    "[AVISO] Botão 'Avançar' não encontrado na tela de senha")
-                return False
-
-            # Clicar no botão "Avançar"
-            try:
-                next_button = self.driver.find_element(
-                    By.XPATH, next_button_xpath)
-                if self._click_safely(next_button):
-                    logger.info(
-                        "[OK] Botão 'Avançar' clicado com sucesso na tela de senha")
-
-                    # Aguardar redirecionamento após clicar no botão
-                    time.sleep(5)
-                    self._wait_for_page_load()
-
-                    # Capturar screenshot após clicar no botão
-                    if DEBUG_MODE:
-                        self._save_screenshot("after_password_next_button")
-
-                    # Verificar se fomos redirecionados para a tela de verificação por telefone
-                    if self._handle_phone_verification_screen():
-                        logger.info(
-                            "[OK] Tela de verificação por telefone tratada com sucesso")
-
-                    return True
-                else:
-                    logger.warning(
-                        "[AVISO] Falha ao clicar no botão 'Avançar' na tela de senha")
-                    return False
-            except Exception as e:
-                logger.warning(
-                    f"[AVISO] Erro ao clicar no botão 'Avançar': {str(e)}")
-                return False
-
-        except Exception as e:
-            logger.error(
-                f"[ERRO] Erro ao tratar tela de inserção de senha: {str(e)}")
-            return False
-
-    def _handle_phone_verification_screen(self) -> bool:
-        """
-        Trata a tela de verificação de identidade por SMS que aparece após a validação da senha.
-        Seleciona o país correto, insere o número de telefone e clica no botão para receber o código.
-
-        Returns:
-            bool: True se o número de telefone foi inserido e o botão foi clicado com sucesso
-        """
-        try:
-            logger.info(
-                "[INFO] Verificando se estamos na tela de verificação por telefone...")
-
-            # Aguardar para verificar se a tela de verificação aparece
-            time.sleep(3)
-
-            # Verificar pela URL se estamos na página de verificação por telefone
-            current_url = self.driver.current_url
-            is_phone_verification_page = False
-
-            # Verificar por diferentes padrões de URL de verificação
-            verification_url_patterns = [
-                "speedbump/idvreenable",
-                "signin/v2/challenge/selection",
-                "signin/v2/challenge/ipp",
-                "challenge/selection"
-            ]
-
-            for pattern in verification_url_patterns:
-                if pattern in current_url:
-                    logger.info(
-                        f"[INFO] URL de página de verificação por telefone detectada: {current_url}")
-                    is_phone_verification_page = True
-                    break
-
-            # XPath do campo de seleção de país - mais preciso
-            country_select_xpath = "//select[@id='countryList']"
-
-            # Verificar se estamos na tela de verificação por telefone
-            if not is_phone_verification_page and not self._check_for_element(By.XPATH, country_select_xpath, timeout=5):
-                # Tentar uma abordagem alternativa
-                alternative_country_select_xpath = "/html/body/div[1]/div[2]/div[2]/form/span/div[2]/select"
-
-                if not self._check_for_element(By.XPATH, alternative_country_select_xpath, timeout=3):
-                    logger.info(
-                        "[INFO] Não estamos na tela de verificação por telefone")
-                    return False
-                else:
-                    country_select_xpath = alternative_country_select_xpath
-                    is_phone_verification_page = True
-            else:
-                is_phone_verification_page = True
-
-            # Capturar screenshot da tela de verificação por telefone
-            if DEBUG_MODE:
-                self._save_screenshot("phone_verification_screen")
-
-            # Obter o país e telefone dos dados da conta
-            # Padrão para Brasil (73) se não encontrado
-            country_code = self.account_data.get("country_code", "73")
-
-            # Mapear o código do país para o valor no select
-            country_code_map = {
-                "73": "BR",  # Brasil
-                "151": "CL",  # Chile
-                "52": "MX",   # México
-                # Adicionar mais mapeamentos conforme necessário
-            }
-
-            # Obter o código do país para o select
-            select_country_code = country_code_map.get(country_code, "BR")
-            logger.info(
-                f"[INFO] Código do país para select: {select_country_code}")
-
-            # Selecionar o país no dropdown
-            try:
-                from selenium.webdriver.support.ui import Select
-
-                country_select = Select(self.driver.find_element(
-                    By.XPATH, country_select_xpath))
-                country_select.select_by_value(select_country_code)
-                logger.info(f"[OK] País selecionado: {select_country_code}")
-
-                # Aguardar um momento após selecionar o país
-                time.sleep(1)
-            except Exception as e:
-                logger.warning(f"[AVISO] Erro ao selecionar país: {str(e)}")
-                return False
-
-            # Inicializar a API de SMS
-            sms_api = SMSAPI()
-
-            # Verificar o saldo disponível
-            balance = sms_api.get_balance()
-            if balance is None or balance <= 0:
-                logger.error(
-                    "[ERRO] Saldo insuficiente ou erro ao verificar saldo na API de SMS")
-                return False
-
-            logger.info(
-                f"[INFO] Saldo disponível na API de SMS: {balance} RUB")
-
-            # Comprar um número para o serviço Google (go)
-            service = "go"  # Código para Gmail/Google
-
-            # Mapear o código do select para o código da API de SMS
-            sms_country_code_map = {
-                "BR": "73",   # Brasil
-                "CL": "151",  # Chile
-                "MX": "52",   # México
-                # Adicionar mais mapeamentos conforme necessário
-            }
-
-            sms_country_code = sms_country_code_map.get(
-                select_country_code, "73")  # Padrão para Brasil
-
-            logger.info(
-                f"[INFO] Comprando número para o serviço {service} no país {sms_country_code}...")
-
-            # Comprar o número
-            activation_id, phone_number = sms_api.get_number(
-                "go", sms_country_code)
-
-            if not activation_id or not phone_number:
-                logger.error("[ERRO] Falha ao comprar número de telefone")
-                return False
-
-            logger.info(
-                f"[OK] Número comprado com sucesso: {phone_number} (ID: {activation_id})")
-
-            # Salvar o activation_id para uso posterior
-            self.predefined_activation_id = activation_id
-            self.predefined_number = phone_number
-            self.predefined_country_code = sms_country_code
-
-            # Formatar o número de telefone conforme necessário (remover o código do país se já estiver selecionado)
-            if phone_number.startswith("+"):
-                # Remover o "+" e o código do país (normalmente 2-3 dígitos)
-                country_prefix_map = {
-                    "BR": "+55",  # Brasil
-                    "CL": "+56",  # Chile
-                    "MX": "+52",  # México
-                }
-
-                prefix = country_prefix_map.get(select_country_code)
-                if prefix and phone_number.startswith(prefix):
-                    formatted_phone = phone_number[len(prefix):]
-                else:
-                    # Se não conseguir identificar o prefixo, usar o número completo
-                    formatted_phone = phone_number[1:]  # Remover apenas o "+"
-            else:
-                formatted_phone = phone_number
-
-            logger.info(
-                f"[INFO] Número formatado para entrada: {formatted_phone}")
-
-            # XPath do campo de telefone - mais preciso
-            phone_field_xpath = "//input[@id='deviceAddress']"
-
-            # Verificar se o campo de telefone está presente
-            if not self._check_for_element(By.XPATH, phone_field_xpath, timeout=5):
-                # Tentar XPath alternativo
-                alt_phone_xpath = "/html/body/div[1]/div[2]/div[2]/form/span/div[3]/input"
-
-                if self._check_for_element(By.XPATH, alt_phone_xpath, timeout=3):
-                    phone_field_xpath = alt_phone_xpath
-                    logger.info(
-                        "[INFO] Campo de telefone encontrado com XPath alternativo")
-                else:
-                    logger.warning("[AVISO] Campo de telefone não encontrado")
-                    # Cancelar a ativação do número, já que não vamos usá-lo
-                    sms_api.set_status(activation_id, 6)  # 6 = Cancelar
-                    return False
-
-            # Preencher o campo de telefone
-            try:
-                phone_field = self.driver.find_element(
-                    By.XPATH, phone_field_xpath)
-                if not self._fill_input_safely(phone_field, formatted_phone):
-                    logger.warning(
-                        "[AVISO] Falha ao preencher o campo de telefone")
-                    # Cancelar a ativação do número
-                    sms_api.set_status(activation_id, 6)
-                    return False
-
-                logger.info("[OK] Campo de telefone preenchido com sucesso")
-            except Exception as e:
-                logger.warning(
-                    f"[AVISO] Erro ao preencher campo de telefone: {str(e)}")
-                # Cancelar a ativação do número
-                sms_api.set_status(activation_id, 6)
-                return False
-
-            # Aguardar um momento após preencher o telefone
-            time.sleep(1)
-
-            # XPath do botão "Receber código" - mais preciso
-            receive_code_button_xpath = "//input[@id='next-button']"
-
-            # Verificar se o botão "Receber código" está presente
-            if not self._check_for_element(By.XPATH, receive_code_button_xpath, timeout=5):
-                # Tentar XPath alternativo
-                alt_button_xpath = "/html/body/div[1]/div[2]/div[2]/form/span/div[4]/input"
-
-                if self._check_for_element(By.XPATH, alt_button_xpath, timeout=3):
-                    receive_code_button_xpath = alt_button_xpath
-                    logger.info(
-                        "[INFO] Botão 'Receber código' encontrado com XPath alternativo")
-                else:
-                    logger.warning(
-                        "[AVISO] Botão 'Receber código' não encontrado")
-                    # Cancelar a ativação do número
-                    sms_api.set_status(activation_id, 6)
-                    return False
-
-            # Clicar no botão "Receber código"
-            try:
-                receive_code_button = self.driver.find_element(
-                    By.XPATH, receive_code_button_xpath)
-                if self._click_safely(receive_code_button):
-                    logger.info(
-                        "[OK] Botão 'Receber código' clicado com sucesso")
-
-                    # Aguardar um momento após clicar no botão
-                    time.sleep(5)
-                    self._wait_for_page_load()
-
-                    # Capturar screenshot após clicar no botão
-                    if DEBUG_MODE:
-                        self._save_screenshot("after_receive_code_button")
-
-                    # Verificar se há mensagens de erro após clicar no botão
-                    error_messages = [
-                        "//div[contains(@class, 'error') or contains(@class, 'Error')]",
-                        "//span[contains(text(), 'erro') or contains(text(), 'inválido') or contains(text(), 'error') or contains(text(), 'invalid')]"
-                    ]
-
-                    error_found = False
-                    for error_xpath in error_messages:
-                        if self._check_for_element(By.XPATH, error_xpath, timeout=3):
-                            error_elem = self.driver.find_element(
-                                By.XPATH, error_xpath)
-                            logger.warning(
-                                f"[AVISO] Erro após clicar no botão: {error_elem.text}")
-                            error_found = True
-                            break
-
-                    if error_found:
-                        # Cancelar a ativação do número
-                        sms_api.set_status(activation_id, 6)
-                        return False
-
-                    # Configurar webhook para este número (opcional)
+                    self._save_screenshot("recovery_options_screen")
+
+                # Tentar localizar o botão "Salvar" usando vários XPaths
+                save_button_xpaths = [
+                    # XPath específico fornecido
+                    "/html/body/div[1]/c-wiz[2]/div/div/div/div/div[2]/button[2]",
+                    "//button[@aria-label='Salvar']",
+                    "//button[contains(., 'Salvar')]",
+                    "//button[contains(@class, 'VfPpkd-LgbsSe') and contains(., 'Salvar')]",
+                    "//span[text()='Salvar']/ancestor::button"
+                ]
+
+                button_clicked = False
+                for xpath in save_button_xpaths:
                     try:
-                        # Verificar se existe um endpoint de webhook disponível
-                        webhook_url = "http://localhost:5001/sms-webhook"
-                        logger.info(
-                            f"[INFO] Configurando webhook para receber SMS: {webhook_url}")
-
-                        # Aqui você poderia registrar o activation_id em um sistema de webhook
-                        # Este é apenas um exemplo e depende da implementação específica
-                        try:
-                            import requests
-                            import json
-                            import os
-
-                            # Registrar o activation_id para webhook (exemplo)
-                            webhook_data = {
-                                "activation_id": activation_id,
-                                "phone_number": phone_number,
-                                "service": service
-                            }
-
-                            # Salvar em um arquivo local para o webhook poder acessar
-                            webhook_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-                                                        "sms_data", "callbacks.json")
-
-                            # Criar diretório se não existir
-                            os.makedirs(os.path.dirname(
-                                webhook_file), exist_ok=True)
-
-                            # Carregar dados existentes ou criar novo
-                            callbacks = {}
-                            if os.path.exists(webhook_file):
-                                try:
-                                    with open(webhook_file, 'r') as f:
-                                        callbacks = json.load(f)
-                                except:
-                                    pass
-
-                            # Adicionar novo callback
-                            callbacks[activation_id] = webhook_url
-
-                            # Salvar no arquivo
-                            with open(webhook_file, 'w') as f:
-                                json.dump(callbacks, f)
-
-                            logger.info(
-                                f"[OK] Webhook configurado para activation_id: {activation_id}")
-                        except Exception as webhook_e:
-                            logger.warning(
-                                f"[AVISO] Erro ao configurar webhook: {str(webhook_e)}")
-                    except Exception as e:
-                        logger.warning(
-                            f"[AVISO] Erro ao configurar webhook: {str(e)}")
-
-                    # Tratar a tela de entrada do código SMS
-                    if self._handle_sms_code_verification(activation_id, sms_api):
-                        logger.info("[OK] Código SMS verificado com sucesso")
-                        return True
-                    else:
-                        logger.warning(
-                            "[AVISO] Falha na verificação do código SMS")
-                        return False
-                else:
-                    logger.warning(
-                        "[AVISO] Falha ao clicar no botão 'Receber código'")
-                    # Cancelar a ativação do número
-                    sms_api.set_status(activation_id, 6)
-                    return False
-            except Exception as e:
-                logger.warning(
-                    f"[AVISO] Erro ao clicar no botão 'Receber código': {str(e)}")
-                # Cancelar a ativação do número
-                sms_api.set_status(activation_id, 6)
-                return False
-
-        except Exception as e:
-            logger.error(
-                f"[ERRO] Erro ao tratar tela de verificação por telefone: {str(e)}")
-            return False
-
-    def _handle_sms_code_verification(self, activation_id, sms_api) -> bool:
-        """
-        Trata a tela de entrada do código SMS recebido.
-
-        Args:
-            activation_id (str): ID da ativação do número na API de SMS
-            sms_api (SMSAPI): Instância da API de SMS
-
-        Returns:
-            bool: True se o código foi inserido e verificado com sucesso
-        """
-        try:
-            logger.info("[INFO] Aguardando código SMS...")
-
-            # Salvar a URL atual antes de qualquer ação
-            original_url = self.driver.current_url
-            logger.info(f"[INFO] URL antes da verificação SMS: {original_url}")
-
-            # Aguardar o carregamento da página de entrada do código
-            time.sleep(3)
-
-            # XPath exato do campo de entrada do código SMS fornecido pelo usuário
-            code_field_xpath = "/html/body/div[1]/div[2]/div[2]/form/span/div[1]/input"
-
-            # Verificar se estamos na tela de entrada do código
-            if not self._check_for_element(By.XPATH, code_field_xpath, timeout=5):
-                # Tentar pelo ID exato
-                id_code_field_xpath = "//input[@id='smsUserPin']"
-
-                if not self._check_for_element(By.XPATH, id_code_field_xpath, timeout=3):
-                    logger.warning(
-                        "[AVISO] Campo de entrada do código SMS não encontrado")
-                    # Cancelar a ativação do número
-                    sms_api.set_status(activation_id, 6)
-                    return False
-                else:
-                    code_field_xpath = id_code_field_xpath
-
-            # Capturar screenshot da tela de entrada do código
-            if DEBUG_MODE:
-                self._save_screenshot("sms_code_entry_screen")
-
-            # Tentar obter código SMS via webhook primeiro (se disponível)
-            sms_code = None
-            try:
-                # Verificar se há um endpoint de webhook configurado
-                webhook_endpoint = f"http://localhost:5001/sms-status/{activation_id}"
-                logger.info(
-                    f"[INFO] Tentando obter código SMS via webhook: {webhook_endpoint}")
-
-                # Tentar até 12 vezes com intervalo de 10 segundos (2 minutos total)
-                for attempt in range(12):
-                    try:
-                        import requests
-                        response = requests.get(webhook_endpoint, timeout=5)
-                        if response.status_code == 200:
-                            data = response.json()
-                            if data and "sms_code" in data:
-                                sms_code = data["sms_code"]
-                                logger.info(
-                                    f"[OK] Código SMS recebido via webhook: {sms_code}")
-                                break
-                    except Exception as webhook_e:
-                        logger.warning(
-                            f"[AVISO] Erro ao verificar webhook: {str(webhook_e)}")
-
-                    # Se ainda não recebeu, aguardar antes da próxima tentativa
-                    if not sms_code:
-                        logger.info(
-                            f"[INFO] Aguardando SMS (tentativa {attempt+1}/12)...")
-                        time.sleep(10)
-            except Exception as e:
-                logger.warning(
-                    f"[AVISO] Erro ao tentar obter código via webhook: {str(e)}")
-
-            # Se não conseguiu via webhook, tentar pelo método tradicional
-            if not sms_code:
-                logger.info(
-                    f"[INFO] Webhook não disponível ou não retornou código. Usando método tradicional.")
-                sms_code = sms_api.get_sms_code(
-                    activation_id, max_attempts=10, interval=10)
-
-            if not sms_code:
-                logger.error("[ERRO] Não foi possível obter o código SMS")
-                # Cancelar a ativação do número
-                sms_api.set_status(activation_id, 6)
-                return False
-
-            logger.info(f"[OK] Código SMS recebido: {sms_code}")
-
-            # Extrair apenas os dígitos do código (caso contenha outros caracteres)
-            import re
-            digits = re.findall(r'\d+', sms_code)
-            if digits:
-                sms_code = ''.join(digits)
-
-            logger.info(f"[INFO] Código formatado para entrada: {sms_code}")
-
-            # Preencher o campo de código
-            try:
-                code_field = self.driver.find_element(
-                    By.XPATH, code_field_xpath)
-                if not self._fill_input_safely(code_field, sms_code):
-                    logger.warning(
-                        "[AVISO] Falha ao preencher o campo de código SMS")
-                    return False
-
-                logger.info("[OK] Campo de código SMS preenchido com sucesso")
-            except Exception as e:
-                logger.warning(
-                    f"[AVISO] Erro ao preencher campo de código SMS: {str(e)}")
-                return False
-
-            # Aguardar um momento após preencher o código
-            time.sleep(1)
-
-            # XPath exato do botão "Verificar" fornecido pelo usuário
-            verify_button_xpath = "/html/body/div[1]/div[2]/div[2]/form/span/div[2]/input"
-
-            # Verificar se o botão está presente
-            if not self._check_for_element(By.XPATH, verify_button_xpath, timeout=5):
-                # Tentar pelo ID exato
-                id_verify_button_xpath = "//input[@id='next-button']"
-
-                if not self._check_for_element(By.XPATH, id_verify_button_xpath, timeout=3):
-                    logger.warning(
-                        "[AVISO] Botão de verificação não encontrado")
-                    return False
-                else:
-                    verify_button_xpath = id_verify_button_xpath
-
-            # Clicar no botão de verificação
-            try:
-                verify_button = self.driver.find_element(
-                    By.XPATH, verify_button_xpath)
-                if self._click_safely(verify_button):
-                    logger.info(
-                        "[OK] Botão de verificação clicado com sucesso")
-
-                    # Informar à API que o código foi usado com sucesso
-                    # 8 = Número confirmado com sucesso
-                    try:
-                        sms_api.set_status(activation_id, 8)
-                    except Exception as e:
-                        # Ignorar erros BAD_STATUS que podem ocorrer quando o número já foi confirmado
-                        if "BAD_STATUS" not in str(e):
-                            logger.warning(
-                                f"[AVISO] Erro ao atualizar status do número: {str(e)}")
-
-                    # Aguardar redirecionamento após verificação
-                    time.sleep(5)
-                    self._wait_for_page_load()
-
-                    # Capturar screenshot após verificação
-                    if DEBUG_MODE:
-                        self._save_screenshot("after_sms_verification")
-
-                    # Verificar URL atual após redirecionamento
-                    current_url = self.driver.current_url
-                    logger.info(
-                        f"[INFO] URL após verificação SMS: {current_url}")
-
-                    # Verificar se fomos redirecionados para a URL do AdSense
-                    if "adsense.google.com" in current_url:
-                        logger.info(
-                            f"[OK] Redirecionado com sucesso para AdSense: {current_url}")
-                        return True
-
-                    # Verificar se fomos redirecionados para a tela de opções de recuperação (comum após verificação)
-                    if "gds.google.com/web/recoveryoptions" in current_url:
-                        logger.info(
-                            "[INFO] Redirecionado para tela de opções de recuperação")
-                        return self._handle_recovery_options_screen()
-                    else:
-                        logger.warning(
-                            "[AVISO] Não foi possível encontrar o botão 'Avançar' e a página não mudou")
-                        return False
-            except Exception as e:
-                logger.warning(
-                    f"[AVISO] Erro ao clicar no botão de verificação: {str(e)}")
-                return False
-
-        except Exception as e:
-            logger.error(
-                f"[ERRO] Erro ao tratar tela de verificação do código SMS: {str(e)}")
-            return False
-
-    def _get_password_from_gmail_json(self, email):
-        """
-        Busca a senha correspondente ao email no arquivo gmail.json.
-
-        Args:
-            email (str): Email para buscar a senha
-
-        Returns:
-            str: Senha correspondente ao email ou None se não encontrada
-        """
-        try:
-            import json
-            import os
-
-            # Caminho para o arquivo gmail.json
-            gmail_json_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-                                           "credentials", "gmail.json")
-
-            # Verificar se o arquivo existe
-            if not os.path.exists(gmail_json_path):
-                logger.warning(
-                    f"[AVISO] Arquivo gmail.json não encontrado em: {gmail_json_path}")
-                return None
-
-            # Carregar o arquivo gmail.json
-            with open(gmail_json_path, 'r', encoding='utf-8') as file:
-                accounts = json.load(file)
-
-            # Buscar a conta com o email correspondente
-            for account in accounts:
-                if account.get("email") == email:
-                    password = account.get("password")
-                    if password:
-                        logger.info(
-                            f"[OK] Senha encontrada para o email: {email}")
-                        return password
-
-            logger.warning(
-                f"[AVISO] Email {email} não encontrado no arquivo gmail.json")
-            return None
-
-        except Exception as e:
-            logger.error(
-                f"[ERRO] Erro ao buscar senha no arquivo gmail.json: {str(e)}")
-            return None
-
-    def _handle_recovery_options_screen(self) -> bool:
-        """
-        Trata a tela de opções de recuperação do Google (gds.google.com/web/recoveryoptions).
-        Clica no botão 'Salvar' e depois no botão 'Pular' na tela seguinte.
-
-        Returns:
-            bool: True se os botões foram clicados com sucesso ou se conseguiu navegar para o AdSense
-        """
-        try:
-            logger.info("[INFO] Tratando tela de opções de recuperação")
-
-            # Capturar screenshot da tela de opções de recuperação se estiver em modo DEBUG
-            if DEBUG_MODE:
-                self._save_screenshot("recovery_options_screen")
-
-            # Lista de XPaths para o botão Salvar
-            salvar_xpaths = [
-                "//button[contains(@class, 'VfPpkd-LgbsSe') and contains(.//span, 'Salvar')]",
-                "/html/body/div[1]/c-wiz[1]/div/div/div/div/div[2]/button[2]",
-                "//button[@jsname='M2UYVd']",
-                "//button[contains(@jslog, '53557')]",
-                "//button[contains(@aria-label, 'Salvar')]",
-                "//button[contains(@aria-label, 'Save')]"
-            ]
-
-            # Verificar se algum dos botões Salvar está presente
-            salvar_encontrado = False
-            salvar_button = None
-            xpath_usado = None
-
-            for xpath in salvar_xpaths:
-                if self._check_for_element(By.XPATH, xpath, timeout=2):
-                    logger.info(
-                        f"[INFO] Botão 'Salvar' encontrado usando XPath: {xpath}")
-                    salvar_button = self.driver.find_element(By.XPATH, xpath)
-                    xpath_usado = xpath
-                    salvar_encontrado = True
-                    break
-
-            if salvar_encontrado:
-                logger.info(
-                    "[INFO] Botão 'Salvar' encontrado na tela de recuperação")
-
-                # Tentar clicar no botão "Salvar"
-                if self._click_safely(salvar_button):
-                    logger.info(
-                        f"[OK] Botão 'Salvar' clicado com sucesso usando {xpath_usado}")
-
-                    # Aguardar redirecionamento após clicar no botão
-                    time.sleep(5)
-                    self._wait_for_page_load()
-
-                    # Capturar screenshot após clicar em "Salvar" se estiver em modo DEBUG
-                    if DEBUG_MODE:
-                        self._save_screenshot("after_save_button")
-
-                    # Lista de XPaths para o botão Pular
-                    pular_xpaths = [
-                        "//button[contains(@class, 'VfPpkd-LgbsSe') and contains(.//span, 'Pular')]",
-                        "/html/body/div[1]/c-wiz[2]/div/div/div/div/div/div[2]/button[1]",
-                        "//button[@jsname='ZUkOIc']",
-                        "//button[contains(@jslog, '53558')]",
-                        "//button[contains(@aria-label, 'Pular')]",
-                        "//button[contains(@aria-label, 'Skip')]",
-                        "//button[contains(.//span, 'Skip')]"
-                    ]
-
-                    # Verificar se algum dos botões Pular está presente
-                    pular_encontrado = False
-                    pular_button = None
-                    xpath_usado = None
-
-                    for xpath in pular_xpaths:
-                        if self._check_for_element(By.XPATH, xpath, timeout=2):
-                            logger.info(
-                                f"[INFO] Botão 'Pular' encontrado usando XPath: {xpath}")
-                            pular_button = self.driver.find_element(
+                        if self._check_for_element(By.XPATH, xpath, timeout=3):
+                            save_button = self.driver.find_element(
                                 By.XPATH, xpath)
-                            xpath_usado = xpath
-                            pular_encontrado = True
-                            break
 
-                    if pular_encontrado:
-                        logger.info(
-                            "[INFO] Botão 'Pular' encontrado na tela seguinte")
+                            # Garantir que o botão está visível
+                            self.driver.execute_script(
+                                "arguments[0].scrollIntoView(true);", save_button)
+                            time.sleep(1)
 
-                        # Tentar clicar no botão "Pular"
-                        if self._click_safely(pular_button):
-                            logger.info(
-                                f"[OK] Botão 'Pular' clicado com sucesso usando {xpath_usado}")
-
-                            # Capturar screenshot após "Pular" se estiver em modo DEBUG
-                            if DEBUG_MODE:
-                                self._save_screenshot("after_skip_button")
-
-                            # Aguardar 15 segundos para redirecionamento automático para o formulário
-                            logger.info(
-                                "[INFO] Aguardando 15 segundos para redirecionamento automático...")
-                            time.sleep(15)
-                            self._wait_for_page_load()
-
-                            # Capturar screenshot após aguardar se estiver em modo DEBUG
-                            if DEBUG_MODE:
-                                self._save_screenshot("after_redirect_wait")
-
-                            # Verificar URL atual após redirecionamento
-                            current_url = self.driver.current_url
-                            logger.info(
-                                f"[INFO] URL após aguardar redirecionamento: {current_url}")
-
-                            if "adsense.google.com" in current_url:
+                            # Tentar clicar no botão
+                            if self._click_safely(save_button):
                                 logger.info(
-                                    f"[OK] Redirecionado com sucesso para AdSense: {current_url}")
-                                return True
+                                    f"[OK] Botão 'Salvar' clicado com sucesso usando XPath: {xpath}")
+                                button_clicked = True
 
-                            # Se não redirecionou para o AdSense, tentar navegar diretamente
+                                # Aguardar o processamento após clicar no botão
+                                time.sleep(5)
+                                self._wait_for_page_load()
+                                break
+                    except Exception as e:
+                        logger.warning(
+                            f"[AVISO] Erro ao tentar clicar no botão 'Salvar' com XPath {xpath}: {str(e)}")
+
+                # Se não conseguiu clicar em nenhum botão, tentar com JavaScript
+                if not button_clicked:
+                    try:
+                        logger.info(
+                            "[INFO] Tentando clicar no botão 'Salvar' com JavaScript")
+                        success = self.driver.execute_script("""
+                            // Tentar encontrar botão pelo texto
+                            var buttons = document.querySelectorAll('button');
+                            for (var i = 0; i < buttons.length; i++) {
+                                if (buttons[i].innerText.includes('Salvar')) {
+                                    buttons[i].click();
+                                    return true;
+                                }
+                            }
+                            
+                            // Tentar por spans dentro de botões
+                            var spans = document.querySelectorAll('button span');
+                            for (var i = 0; i < spans.length; i++) {
+                                if (spans[i].innerText.includes('Salvar')) {
+                                    spans[i].closest('button').click();
+                                    return true;
+                                }
+                            }
+                            
+                            // Tentar pelo XPath específico
+                            var xpathResult = document.evaluate(
+                                "/html/body/div[1]/c-wiz[2]/div/div/div/div/div[2]/button[2]", 
+                                document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null
+                            );
+                            
+                            if (xpathResult && xpathResult.singleNodeValue) {
+                                xpathResult.singleNodeValue.click();
+                                return true;
+                            }
+                            
+                            return false;
+                        """)
+
+                        if success:
                             logger.info(
-                                "[INFO] Não redirecionou automaticamente para o AdSense, tentando navegação direta...")
+                                "[OK] Botão 'Salvar' clicado com sucesso via JavaScript")
+                            button_clicked = True
+
+                            # Aguardar o processamento após clicar no botão
+                            time.sleep(5)
+                            self._wait_for_page_load()
                         else:
                             logger.warning(
-                                "[AVISO] Falha ao clicar no botão 'Pular', tentando navegação direta para o AdSense...")
-                    else:
+                                "[AVISO] Não foi possível encontrar o botão 'Salvar' via JavaScript")
+                    except Exception as e:
                         logger.warning(
-                            "[AVISO] Botão 'Pular' não encontrado, tentando navegação direta para o AdSense...")
-                else:
-                    logger.warning(
-                        "[AVISO] Falha ao clicar no botão 'Salvar', tentando navegação direta para o AdSense...")
-            else:
-                logger.info(
-                    "[INFO] Botão 'Salvar' não encontrado, tentando navegação direta para o AdSense...")
+                            f"[AVISO] Erro ao tentar clicar no botão 'Salvar' via JavaScript: {str(e)}")
 
-            # Tentar navegar diretamente para o AdSense como último recurso
-            return self._try_direct_adsense_navigation()
+                # Capturar screenshot após tentar clicar no botão
+                if DEBUG_MODE:
+                    self._save_screenshot("after_save_button_click")
 
-        except Exception as e:
-            logger.error(
-                f"[ERRO] Erro ao tratar tela de opções de recuperação: {str(e)}")
-            # Tentar navegação direta como último recurso
-            return self._try_direct_adsense_navigation()
+                return button_clicked
 
-    def _try_direct_adsense_navigation(self) -> bool:
-        """
-        Tenta navegar diretamente para diferentes URLs do AdSense.
-
-        Returns:
-            bool: True se conseguiu navegar para alguma URL do AdSense
-        """
-        try:
-            logger.info("[INFO] Tentando navegação direta para o AdSense...")
-
-            adsense_urls = [
-                "https://adsense.google.com/adsense/signup",
-                "https://adsense.google.com/adsense/overview",
-                "https://adsense.google.com/adsense/app"
-            ]
-
-            for url in adsense_urls:
-                logger.info(f"[INFO] Tentando navegar para {url}")
-                self.driver.get(url)
-                time.sleep(5)
-                self._wait_for_page_load()
-
-                current_url = self.driver.current_url
-                if "adsense.google.com" in current_url:
-                    logger.info(
-                        f"[OK] Navegação direta para AdSense bem-sucedida: {current_url}")
-                    return True
-
-                # Verificar se chegamos a uma tela de seleção de conta
-                if self._check_for_account_selection_screen():
-                    logger.info(
-                        "[INFO] Detectada tela de seleção de conta. Tentando selecionar a conta...")
-                    if self._handle_account_selection_screen():
-                        logger.info("[OK] Conta selecionada com sucesso")
-
-                        # Verificar se chegamos ao AdSense após selecionar a conta
-                        time.sleep(5)
-                        self._wait_for_page_load()
-                        if "adsense.google.com" in self.driver.current_url:
-                            logger.info(
-                                f"[OK] Redirecionado para AdSense após selecionar conta: {self.driver.current_url}")
-                            return True
-
-            logger.warning(
-                "[AVISO] Não foi possível navegar para o AdSense por nenhuma das URLs tentadas")
-            # Consideramos que a verificação foi bem-sucedida mesmo assim
-            logger.info(
-                "[INFO] Verificação concluída, mas não conseguimos navegar para o AdSense")
-            return True
+            return False  # Não estamos na tela de confirmação
 
         except Exception as e:
             logger.warning(
-                f"[AVISO] Erro ao tentar navegação direta para o AdSense: {str(e)}")
+                f"[AVISO] Erro ao verificar/tratar tela de confirmação de recuperação: {str(e)}")
             return False
