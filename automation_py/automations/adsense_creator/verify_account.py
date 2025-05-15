@@ -11,6 +11,16 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 logger = logging.getLogger(__name__)
 
+# Tentativa de importar o BrowserManager. Se não existir, usaremos o fallback.
+try:
+    from powerads_api.browser_manager import BrowserManager
+    HAS_BROWSER_MANAGER = True
+    logger.info("[INFO] BrowserManager importado com sucesso")
+except ImportError:
+    HAS_BROWSER_MANAGER = False
+    logger.warning(
+        "[AVISO] BrowserManager não encontrado, usando método alternativo")
+
 
 class AdSenseAccountVerifier:
     def __init__(self, driver):
@@ -512,6 +522,231 @@ class AdSenseAccountVerifier:
                 f"[ERRO] Falha ao clicar no botão de verificação: {str(e)}")
             return False
 
+    def click_site_review_button(self, timeout=15):
+        """
+        Clica no botão de "Revisão do site" que aparece após a verificação ser concluída.
+
+        Args:
+            timeout (int): Tempo máximo de espera em segundos
+
+        Returns:
+            bool: True se o clique foi bem-sucedido
+        """
+        try:
+            logger.info("[INFO] Tentando clicar no botão 'Revisão do site'...")
+
+            # XPath para o botão "Revisão do site"
+            review_button_xpath = "/html/body/div[1]/bruschetta-app/as-exception-handler/div[2]/div/div[2]/div/main/div[2]/site-management/as-exception-handler/sites/slidealog[4]/focus-trap/div[2]/material-drawer/div[2]/div[2]/div/paneled-detail/review-panel/material-expansionpanel/div/div[2]/div/div[1]/div/form/button/material-ripple"
+
+            # XPaths alternativos para o botão "Revisão do site"
+            alt_review_button_xpaths = [
+                "//review-panel//button",
+                "//button[contains(.,'Revisão')]",
+                "//button[contains(.,'Review')]",
+                "//material-expansionpanel[contains(.,'Revisão')]//button",
+                "//material-expansionpanel[contains(.,'Review')]//button"
+            ]
+
+            # Aguardar o botão aparecer
+            time.sleep(3)
+
+            # Tenta encontrar o botão pelo XPath principal
+            try:
+                review_button = WebDriverWait(self.driver, timeout).until(
+                    EC.presence_of_element_located(
+                        (By.XPATH, review_button_xpath))
+                )
+                logger.info(
+                    "[OK] Botão 'Revisão do site' encontrado pelo XPath principal")
+            except TimeoutException:
+                # Tentar XPaths alternativos
+                review_button = None
+                for alt_xpath in alt_review_button_xpaths:
+                    try:
+                        logger.info(
+                            f"[INFO] Tentando XPath alternativo: {alt_xpath}")
+                        review_button = WebDriverWait(self.driver, 3).until(
+                            EC.presence_of_element_located(
+                                (By.XPATH, alt_xpath))
+                        )
+                        if review_button:
+                            logger.info(
+                                f"[OK] Botão encontrado com XPath alternativo: {alt_xpath}")
+                            break
+                    except:
+                        continue
+
+                if not review_button:
+                    logger.warning(
+                        "[AVISO] Não foi possível encontrar o botão 'Revisão do site'")
+                    return False
+
+            # Tentar clicar usando JavaScript (mais confiável)
+            self.driver.execute_script("arguments[0].click();", review_button)
+            logger.info("[OK] Botão 'Revisão do site' clicado com sucesso!")
+
+            # Aguardar para que a ação seja processada
+            time.sleep(3)
+
+            # Lidar com a janela de consentimento
+            if self.handle_consent_form():
+                logger.info(
+                    "[OK] Formulário de consentimento preenchido com sucesso!")
+                return True
+            else:
+                logger.warning(
+                    "[AVISO] Não foi possível preencher o formulário de consentimento")
+                return False
+
+        except Exception as e:
+            logger.error(
+                f"[ERRO] Falha ao clicar no botão 'Revisão do site': {str(e)}")
+            return False
+
+    def handle_consent_form(self, timeout=15):
+        """
+        Lida com o formulário de consentimento que aparece após clicar no botão de Revisão do site.
+        Seleciona o radiobutton e clica no botão enviar.
+
+        Args:
+            timeout (int): Tempo máximo de espera em segundos
+
+        Returns:
+            bool: True se o preenchimento foi bem-sucedido
+        """
+        try:
+            logger.info(
+                "[INFO] Tentando preencher o formulário de consentimento...")
+
+            # XPath para o radiobutton
+            radio_xpath = "/html/body/div[1]/bruschetta-app/as-exception-handler/div[2]/div/div[2]/div/main/div[2]/site-management/as-exception-handler/sites/slidealog[4]/focus-trap/div[2]/material-drawer/div[2]/div[2]/div/paneled-detail/div[2]/site-consent/form/div/material-radio-group/div/div[1]/material-radio/div[1]/input"
+
+            # XPath para o botão enviar
+            submit_button_xpath = "/html/body/div[1]/bruschetta-app/as-exception-handler/div[2]/div/div[2]/div/main/div[2]/site-management/as-exception-handler/sites/slidealog[4]/focus-trap/div[2]/material-drawer/div[2]/div[2]/div/paneled-detail/div[2]/site-consent/form/div/div[2]/div/button[2]/material-ripple"
+
+            # XPaths alternativos
+            alt_radio_xpaths = [
+                "//material-radio//input",
+                "//material-radio-group//input",
+                "//form//material-radio//input"
+            ]
+
+            alt_submit_button_xpaths = [
+                "//button[contains(.,'Enviar')]",
+                "//button[contains(.,'Submit')]",
+                "//form//button[last()]",
+                "//site-consent//button[last()]"
+            ]
+
+            # Esperar um momento para a janela aparecer
+            time.sleep(3)
+
+            # Tentar encontrar o radiobutton
+            radio_button = None
+            try:
+                radio_button = WebDriverWait(self.driver, timeout).until(
+                    EC.presence_of_element_located((By.XPATH, radio_xpath))
+                )
+                logger.info("[OK] Radiobutton encontrado pelo XPath principal")
+            except TimeoutException:
+                # Tentar XPaths alternativos
+                for alt_xpath in alt_radio_xpaths:
+                    try:
+                        logger.info(
+                            f"[INFO] Tentando XPath alternativo para radiobutton: {alt_xpath}")
+                        radio_button = WebDriverWait(self.driver, 3).until(
+                            EC.presence_of_element_located(
+                                (By.XPATH, alt_xpath))
+                        )
+                        if radio_button:
+                            logger.info(
+                                f"[OK] Radiobutton encontrado com XPath alternativo: {alt_xpath}")
+                            break
+                    except:
+                        continue
+
+            # Se encontrou o radiobutton, clicar nele
+            if radio_button:
+                # Verificar se o radiobutton já está selecionado
+                is_checked = self.driver.execute_script(
+                    "return arguments[0].checked;", radio_button
+                )
+
+                if not is_checked:
+                    # Clicar no radiobutton usando JavaScript
+                    self.driver.execute_script(
+                        "arguments[0].click();", radio_button)
+                    logger.info("[OK] Radiobutton clicado com sucesso")
+
+                    # Aguardar para garantir que a seleção foi processada
+                    time.sleep(1)
+                else:
+                    logger.info("[INFO] Radiobutton já está selecionado")
+            else:
+                logger.warning(
+                    "[AVISO] Não foi possível encontrar o radiobutton no formulário")
+                # Continuar mesmo sem conseguir selecionar o radiobutton
+
+            # Tentar encontrar o botão enviar
+            submit_button = None
+            try:
+                submit_button = WebDriverWait(self.driver, timeout).until(
+                    EC.element_to_be_clickable((By.XPATH, submit_button_xpath))
+                )
+                logger.info(
+                    "[OK] Botão enviar encontrado pelo XPath principal")
+            except TimeoutException:
+                # Tentar XPaths alternativos
+                for alt_xpath in alt_submit_button_xpaths:
+                    try:
+                        logger.info(
+                            f"[INFO] Tentando XPath alternativo para botão enviar: {alt_xpath}")
+                        submit_button = WebDriverWait(self.driver, 3).until(
+                            EC.element_to_be_clickable((By.XPATH, alt_xpath))
+                        )
+                        if submit_button:
+                            logger.info(
+                                f"[OK] Botão enviar encontrado com XPath alternativo: {alt_xpath}")
+                            break
+                    except:
+                        continue
+
+            # Se encontrou o botão enviar, clicar nele
+            if submit_button:
+                # Clicar no botão usando JavaScript
+                self.driver.execute_script(
+                    "arguments[0].click();", submit_button)
+                logger.info("[OK] Botão enviar clicado com sucesso!")
+
+                # Aguardar para que a ação seja processada
+                time.sleep(5)
+
+                # Verificar se o envio foi bem-sucedido (mudança de URL ou elemento na página)
+                try:
+                    # Verificar algum indicador de sucesso
+                    success_indicator = WebDriverWait(self.driver, 5).until(
+                        EC.presence_of_element_located(
+                            (By.XPATH,
+                             "//*[contains(text(), 'sucesso') or contains(text(), 'success')]")
+                        )
+                    )
+                    logger.info("[OK] Formulário enviado com sucesso!")
+                except TimeoutException:
+                    # Mesmo sem confirmação explícita, consideramos que foi enviado
+                    logger.info(
+                        "[INFO] Sem confirmação explícita, mas assumindo que o formulário foi enviado")
+
+                return True
+            else:
+                logger.error(
+                    "[ERRO] Não foi possível encontrar o botão enviar no formulário")
+                return False
+
+        except Exception as e:
+            logger.error(
+                f"[ERRO] Falha ao preencher formulário de consentimento: {str(e)}")
+            return False
+
     def verify_site(self, pub_id=None, site_url=None):
         """
         Processo completo de verificação do site no AdSense.
@@ -540,21 +775,180 @@ class AdSenseAccountVerifier:
                 return False
 
             # Clicar no botão de verificação
-            result = self.click_verification_button()
-            if result:
-                logger.info("[OK] Site verificado com sucesso!")
-            else:
+            verify_result = self.click_verification_button()
+            if not verify_result:
                 logger.error("[ERRO] Falha ao verificar o site")
+                return False
 
-            return result
+            logger.info("[OK] Site verificado com sucesso!")
+
+            # Aguardar um momento para a interface atualizar
+            time.sleep(3)
+
+            # Clicar no botão "Revisão do site" após a verificação bem-sucedida
+            review_result = self.click_site_review_button()
+            if review_result:
+                logger.info(
+                    "[OK] Processo de revisão do site concluído com sucesso!")
+            else:
+                logger.warning(
+                    "[AVISO] Não foi possível completar o processo de revisão do site, mas a verificação foi concluída")
+
+            return True
 
         except Exception as e:
             logger.error(f"[ERRO] Falha ao verificar site: {str(e)}")
             return False
 
+    def close_browser(self):
+        """
+        Fecha o navegador após a conclusão de todo o processo.
+        Tenta usar o BrowserManager se disponível, caso contrário usa driver.quit().
+
+        Returns:
+            bool: True se o navegador foi fechado com sucesso
+        """
+        try:
+            logger.info(
+                "[INFO] Finalizando o processo e fechando o navegador...")
+
+            # Aguardar um momento antes de fechar (opcional)
+            time.sleep(3)
+
+            if not self.driver:
+                logger.warning(
+                    "[AVISO] Driver já está fechado ou não foi inicializado")
+                return False
+
+            # Tentar obter o user_id do AdsPower da URL, se disponível
+            user_id = None
+            try:
+                # Verificar se há algum atributo que indique o user_id do AdsPower
+                if hasattr(self.driver, "adspower_user_id"):
+                    user_id = getattr(self.driver, "adspower_user_id")
+                    logger.info(
+                        f"[INFO] User ID do AdsPower encontrado: {user_id}")
+            except Exception as e:
+                logger.warning(
+                    f"[AVISO] Não foi possível obter o user_id do AdsPower: {str(e)}")
+
+            # Verificar se o BrowserManager está disponível e se temos um user_id
+            if HAS_BROWSER_MANAGER and user_id:
+                try:
+                    from powerads_api.browser_manager import BrowserManager
+
+                    # Se já tivermos uma instância do BrowserManager disponível no driver
+                    if hasattr(self.driver, "browser_manager"):
+                        browser_manager = getattr(
+                            self.driver, "browser_manager")
+                        success = browser_manager.close_browser(user_id)
+
+                        if success:
+                            logger.info(
+                                "[OK] Navegador fechado com sucesso usando BrowserManager")
+                            self.driver = None
+                            return True
+                        else:
+                            logger.warning(
+                                "[AVISO] Falha ao fechar navegador com BrowserManager, tentando método alternativo")
+                    else:
+                        logger.warning(
+                            "[AVISO] BrowserManager não encontrado no driver, tentando método alternativo")
+                except Exception as e:
+                    logger.warning(
+                        f"[AVISO] Erro ao usar BrowserManager: {str(e)}, tentando método alternativo")
+
+            # Se não conseguir usar o BrowserManager ou não tiver o user_id, tenta o método padrão
+            try:
+                # Método Selenium padrão
+                current_url = self.driver.current_url  # Salvar URL atual antes de fechar
+                self.driver.quit()
+                logger.info(
+                    "[OK] Navegador fechado com sucesso usando driver.quit()")
+
+                # Importante: definir driver como None após fechar
+                self.driver = None
+                return True
+            except Exception as e:
+                logger.error(
+                    f"[ERRO] Falha específica ao fechar o navegador com driver.quit(): {str(e)}")
+
+                # Mesmo com erro, definir driver como None
+                self.driver = None
+                return False
+
+        except Exception as e:
+            logger.error(f"[ERRO] Falha geral ao fechar o navegador: {str(e)}")
+
+            # Mesmo com erro, tentar definir driver como None
+            try:
+                self.driver = None
+            except:
+                pass
+
+            return False
+
+    def verify_site_and_close(self, pub_id=None, site_url=None):
+        """
+        Executa todo o processo de verificação do site e fecha o navegador ao final.
+
+        Args:
+            pub_id (str, optional): ID do publisher (sem 'pub-'). Ex: 5586201132431151
+            site_url (str, optional): URL do site. Ex: fulled.com.br
+
+        Returns:
+            bool: True se todo o processo foi concluído com sucesso
+        """
+        try:
+            # Executar o processo de verificação
+            verify_result = self.verify_site(pub_id, site_url)
+
+            # Fechar o navegador independente do resultado
+            close_result = self.close_browser()
+
+            if not close_result:
+                logger.warning(
+                    "[AVISO] O navegador pode não ter sido fechado corretamente")
+
+            # Retornar o resultado da verificação
+            return verify_result
+
+        except Exception as e:
+            logger.error(f"[ERRO] Falha no processo completo: {str(e)}")
+
+            # Tentar fechar o navegador mesmo em caso de erro
+            try:
+                self.close_browser()
+            except Exception as e2:
+                logger.error(
+                    f"[ERRO] Falha na tentativa de fechar navegador após erro: {str(e2)}")
+
+            return False
+
     def verify_and_close(self):
         """Método mantido para compatibilidade com versões anteriores"""
-        xpath = "/html/body/div[1]/bruschetta-app/as-exception-handler/div[2]/div/div[2]/div/main/div/site-management/as-exception-handler/sites/slidealog[4]/focus-trap/div[2]/material-drawer/div[2]/div[2]/div/paneled-detail/adsense-tagging/material-expansionpanel/div/div[2]/div/div[1]/div/form/button/material-ripple"
-        result = self.click_verification_button(xpath)
-        # Não fechamos o navegador para permitir outras operações
-        return result
+        try:
+            xpath = "/html/body/div[1]/bruschetta-app/as-exception-handler/div[2]/div/div[2]/div/main/div/site-management/as-exception-handler/sites/slidealog[4]/focus-trap/div[2]/material-drawer/div[2]/div[2]/div/paneled-detail/adsense-tagging/material-expansionpanel/div/div[2]/div/div[1]/div/form/button/material-ripple"
+            verify_result = self.click_verification_button(xpath)
+
+            if verify_result:
+                # Também tentar clicar no botão de revisão
+                review_result = self.click_site_review_button()
+                if not review_result:
+                    logger.warning(
+                        "[AVISO] Não foi possível completar a revisão do site")
+
+            # Fechar o navegador no final do processo, independente do resultado
+            self.close_browser()
+
+            return verify_result
+        except Exception as e:
+            logger.error(f"[ERRO] Falha em verify_and_close: {str(e)}")
+
+            # Tentar fechar o navegador mesmo em caso de erro
+            try:
+                self.close_browser()
+            except:
+                pass
+
+            return False

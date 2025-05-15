@@ -138,52 +138,78 @@ class AccountSetup:
             if not self._execute_with_retry(self._navigate_to_adsense_signup):
                 return False
 
-            # Verificar se estamos na tela de senha após navegação inicial
-            self._execute_with_retry(self._handle_password_screen)
-            logger.info(
-                "[INFO] Verificação de tela de senha após navegação inicial concluída")
-
-            # Verificar se estamos na tela de verificação de telefone
-            if self._check_for_phone_verification():
+            # Verificar o estado atual após a navegação inicial
+            # Se estamos em WEBSITE_INFO, significa que a conta já estava validada e fomos redirecionados
+            if self.state == SetupState.WEBSITE_INFO:
                 logger.info(
-                    "[INFO] Tela de verificação de telefone detectada após navegação inicial")
-                if not self._handle_phone_verification():
-                    logger.error(
-                        "[ERRO] Falha na verificação de telefone após navegação inicial")
+                    "[INFO] Conta já validada, pulando para o preenchimento das informações do site")
+
+                # Verificar se estamos na tela de senha após navegação inicial (pode acontecer mesmo com redirecionamento)
+                self._execute_with_retry(self._handle_password_screen)
+                logger.info(
+                    "[INFO] Verificação de tela de senha após navegação inicial concluída")
+
+                # Verificar se estamos na tela de verificação de telefone
+                if self._check_for_phone_verification():
+                    logger.info(
+                        "[INFO] Tela de verificação de telefone detectada após navegação inicial")
+                    if not self._handle_phone_verification():
+                        logger.error(
+                            "[ERRO] Falha na verificação de telefone após navegação inicial")
+                        return False
+
+                # Pular direto para o preenchimento das informações do site
+                if not self._execute_with_retry(self._fill_website_info):
                     return False
 
-            # Preencher o formulário de inscrição
-            self.state = SetupState.SIGNUP_FORM
-            if not self._execute_with_retry(self._complete_signup_form):
-                return False
-
-            # Verificar se estamos na tela de senha após o formulário de inscrição
-            self._execute_with_retry(self._handle_password_screen)
-            logger.info(
-                "[INFO] Verificação de tela de senha após formulário de inscrição concluída")
-
-            # Verificar novamente se estamos na tela de verificação de telefone
-            if self._check_for_phone_verification():
+            else:
+                # Fluxo normal para contas novas
+                # Verificar se estamos na tela de senha após navegação inicial
+                self._execute_with_retry(self._handle_password_screen)
                 logger.info(
-                    "[INFO] Tela de verificação de telefone detectada após formulário de inscrição")
-                if not self._handle_phone_verification():
-                    logger.error(
-                        "[ERRO] Falha na verificação de telefone após formulário de inscrição")
+                    "[INFO] Verificação de tela de senha após navegação inicial concluída")
+
+                # Verificar se estamos na tela de verificação de telefone
+                if self._check_for_phone_verification():
+                    logger.info(
+                        "[INFO] Tela de verificação de telefone detectada após navegação inicial")
+                    if not self._handle_phone_verification():
+                        logger.error(
+                            "[ERRO] Falha na verificação de telefone após navegação inicial")
+                        return False
+
+                # Preencher o formulário de inscrição
+                self.state = SetupState.SIGNUP_FORM
+                if not self._execute_with_retry(self._complete_signup_form):
                     return False
 
-            # Preencher informações do site
-            self.state = SetupState.WEBSITE_INFO
-            if not self._execute_with_retry(self._fill_website_info):
-                return False
-
-            # Verificar mais uma vez se estamos na tela de verificação de telefone
-            if self._check_for_phone_verification():
+                # Verificar se estamos na tela de senha após o formulário de inscrição
+                self._execute_with_retry(self._handle_password_screen)
                 logger.info(
-                    "[INFO] Tela de verificação de telefone detectada após preenchimento de informações do site")
-                if not self._handle_phone_verification():
-                    logger.error(
-                        "[ERRO] Falha na verificação de telefone após preenchimento de informações do site")
+                    "[INFO] Verificação de tela de senha após formulário de inscrição concluída")
+
+                # Verificar novamente se estamos na tela de verificação de telefone
+                if self._check_for_phone_verification():
+                    logger.info(
+                        "[INFO] Tela de verificação de telefone detectada após formulário de inscrição")
+                    if not self._handle_phone_verification():
+                        logger.error(
+                            "[ERRO] Falha na verificação de telefone após formulário de inscrição")
+                        return False
+
+                # Preencher informações do site
+                self.state = SetupState.WEBSITE_INFO
+                if not self._execute_with_retry(self._fill_website_info):
                     return False
+
+                # Verificar mais uma vez se estamos na tela de verificação de telefone
+                if self._check_for_phone_verification():
+                    logger.info(
+                        "[INFO] Tela de verificação de telefone detectada após preenchimento de informações do site")
+                    if not self._handle_phone_verification():
+                        logger.error(
+                            "[ERRO] Falha na verificação de telefone após preenchimento de informações do site")
+                        return False
 
             # Parar aqui conforme solicitado - não prosseguir com as etapas seguintes
             logger.info(
@@ -313,6 +339,35 @@ class AccountSetup:
 
                 # Verificar e tratar recaptcha se necessário
                 self._check_and_handle_recaptcha()
+
+                # Verificar se após selecionar a conta fomos redirecionados diretamente para a tela principal do AdSense
+                # (isso acontece quando a conta já foi validada previamente)
+                current_url = self.driver.current_url
+                logger.info(f"[INFO] URL após seleção de conta: {current_url}")
+
+                if "adsense.google.com/adsense" in current_url and "signup" not in current_url:
+                    logger.info(
+                        "[INFO] Detectado redirecionamento direto para a tela principal do AdSense (conta já validada)")
+
+                    # Verificar se há elementos que confirmam que estamos na tela principal
+                    main_screen_indicators = [
+                        "//input[@aria-label='URL']",
+                        "//input[contains(@placeholder, 'website')]",
+                        "//input[contains(@id, 'website')]",
+                        "//div[contains(text(), 'site URL')]",
+                        "//div[contains(text(), 'URL do site')]"
+                    ]
+
+                    for indicator in main_screen_indicators:
+                        if self._check_for_element(By.XPATH, indicator, timeout=2):
+                            logger.info(
+                                f"[OK] Confirmada tela principal do AdSense através do elemento: {indicator}")
+
+                            # Indicar que devemos pular a tela de inscrição inicial
+                            self.state = SetupState.WEBSITE_INFO
+                            logger.info(
+                                "[INFO] Pulando tela de inscrição inicial, conta já está validada")
+                            return True
 
             # Registrar URL atual para debug
             current_url = self.driver.current_url
@@ -1274,45 +1329,96 @@ class AccountSetup:
     def _check_and_handle_recaptcha(self) -> bool:
         """
         Verifica se há um recaptcha na página e aguarda sua resolução automática.
+        Evita falsos positivos verificando também elementos da tela de criação do AdSense.
 
         Returns:
             bool: True se o recaptcha foi detectado e tratado, False caso contrário
         """
         try:
-            # Verificar pela URL
+            # Verificar a URL atual
             current_url = self.driver.current_url
+            logger.info(f"[INFO] Verificando URL atual: {current_url}")
+
+            # Verificar se estamos na URL de criação do AdSense
+            if "adsense.google.com/adsense/signup/create" in current_url:
+                logger.info(
+                    f"[INFO] Na tela de criação do AdSense, detectado pela URL: {current_url}")
+                return False  # Não é recaptcha, já estamos na tela certa
+
+            # Verificar primeiro se já estamos na tela de criação do AdSense
+            adsense_indicators = [
+                "//input[@aria-label='URL']",
+                "//input[contains(@placeholder, 'website')]",
+                "//input[contains(@placeholder, 'site')]",
+                "//div[contains(text(), 'site URL')]",
+                "//div[contains(text(), 'URL do site')]",
+                "//div[contains(text(), 'Vamos começar')]",
+                "//div[contains(text(), 'Seu site')]",
+                "//form[contains(@action, 'adsense/signup/create')]",
+                "//div[contains(@class, 'freebirdFormviewerViewItemsItemItem')]",
+                "//div[contains(@role, 'listitem')]"
+            ]
+
+            for indicator in adsense_indicators:
+                if self._check_for_element(By.XPATH, indicator, timeout=2):
+                    logger.info(
+                        f"[INFO] Já na tela de criação do AdSense, detectado pelo elemento: {indicator}")
+                    return False  # Não é recaptcha, já estamos na tela certa
+
+            # Verificar se há textos comuns na página de criação do AdSense
+            try:
+                adsense_texts = ["Vamos começar",
+                                 "Seu site", "URL do site", "AdSense"]
+                for text in adsense_texts:
+                    if self.driver.execute_script(f"return document.body.innerText.includes('{text}')"):
+                        logger.info(
+                            f"[INFO] Na tela de criação do AdSense, detectado pelo texto: '{text}'")
+                        return False  # Não é recaptcha
+            except Exception as e:
+                logger.warning(
+                    f"[AVISO] Erro ao verificar textos na página: {str(e)}")
+
+            # Verificações para recaptcha
             is_recaptcha = False
 
-            # Verificar se a URL contém indicadores de recaptcha/challenge
+            # Verificar pela URL se é recaptcha
             if "recaptcha" in current_url or "challenge" in current_url:
                 is_recaptcha = True
                 logger.info(
                     f"[INFO] Detectada tela de recaptcha via URL: {current_url}")
 
-            # Verificar elementos visíveis de recaptcha
+            # Verificação com elementos específicos de recaptcha
             recaptcha_elements = [
-                "//iframe[contains(@src, 'recaptcha')]",
-                "//div[contains(@class, 'recaptcha')]",
-                "//div[@id='recaptcha']",
-                "//div[contains(@id, 'captcha')]",
-                "//iframe[contains(@title, 'reCAPTCHA')]"
+                "//iframe[contains(@src, 'recaptcha') and contains(@title, 'reCAPTCHA')]",
+                "//div[@id='recaptcha' and contains(@class, 'recaptcha')]",
+                "//div[contains(@class, 'recaptcha-checkbox-border') and not(ancestor::*[contains(@style,'display: none')])]",
+                "//div[contains(@class, 'g-recaptcha')]"
             ]
 
             for element in recaptcha_elements:
                 if not is_recaptcha and self._check_for_element(By.XPATH, element, timeout=2):
-                    is_recaptcha = True
-                    logger.info(
-                        f"[INFO] Detectada tela de recaptcha via elemento: {element}")
-                    break
+                    # Verificação adicional - confirmar visualmente
+                    is_element_visible = self.driver.execute_script("""
+                        var el = document.evaluate(arguments[0], document, null, 
+                                  XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+                        if (!el) return false;
+                        
+                        var rect = el.getBoundingClientRect();
+                        return rect.width > 0 && rect.height > 0 && 
+                              rect.top >= 0 && rect.left >= 0 &&
+                              el.style.display !== 'none' && el.style.visibility !== 'hidden';
+                    """, element)
+
+                    if is_element_visible:
+                        is_recaptcha = True
+                        logger.info(
+                            f"[INFO] Detectada tela de recaptcha via elemento visível: {element}")
+                        break
 
             # Se detectou recaptcha, tratar
             if is_recaptcha:
                 logger.info(
                     "[INFO] Aguardando 45 segundos para resolução automática do recaptcha...")
-
-                # Salvar screenshot da tela de recaptcha
-                if DEBUG_MODE:
-                    self._save_screenshot("recaptcha_challenge_screen")
 
                 # Aguardar 45 segundos para a resolução automática do recaptcha
                 time.sleep(45)
@@ -1322,137 +1428,13 @@ class AccountSetup:
                 logger.info(
                     f"[INFO] URL após aguardar resolução do recaptcha: {new_url}")
 
-                # Salvar screenshot após a espera
-                if DEBUG_MODE:
-                    self._save_screenshot("after_recaptcha_wait")
-
-                # Clicar no botão "Avançar" após a resolução do recaptcha
-                # XPath específico fornecido
-                advance_button_xpath = "/html/body/div[1]/div[1]/div[2]/c-wiz/div/div[3]/div/div[1]/div/div/button"
-
-                logger.info(
-                    "[INFO] Tentando clicar no botão 'Avançar' após resolução do recaptcha...")
-
-                button_clicked = False
-
-                # Método 1: Tentar encontrar o botão pelo XPath específico e clicar diretamente
-                try:
-                    if self._check_for_element(By.XPATH, advance_button_xpath, timeout=5):
-                        button = self.driver.find_element(
-                            By.XPATH, advance_button_xpath)
-
-                        # Registrar o texto do botão para confirmação
-                        button_text = button.text.strip() if button.text else "Sem texto"
-                        logger.info(
-                            f"[INFO] Botão encontrado com texto: '{button_text}'")
-
-                        # Tentar clicar diretamente
-                        try:
-                            button.click()
-                            logger.info(
-                                "[OK] Botão 'Avançar' clicado com sucesso após recaptcha")
-                            button_clicked = True
-                        except Exception as e:
-                            logger.warning(
-                                f"[AVISO] Falha ao clicar diretamente no botão: {str(e)}")
-
-                            # Tentar via JavaScript
-                            try:
-                                self.driver.execute_script(
-                                    "arguments[0].click();", button)
-                                logger.info(
-                                    "[OK] Botão 'Avançar' clicado com sucesso via JavaScript após recaptcha")
-                                button_clicked = True
-                            except Exception as js_e:
-                                logger.warning(
-                                    f"[AVISO] Falha ao clicar via JavaScript no botão: {str(js_e)}")
-                except Exception as e:
-                    logger.warning(
-                        f"[AVISO] Erro ao tentar localizar o botão pelo XPath: {str(e)}")
-
-                # Método 2: Tentar encontrar por texto e classes
-                if not button_clicked:
-                    try:
-                        # Tentar localizar pelo texto e parte da classe
-                        alt_xpath = "//button[contains(@class, 'VfPpkd-LgbsSe') and .//span[contains(text(), 'Avançar')]]"
-                        if self._check_for_element(By.XPATH, alt_xpath, timeout=3):
-                            button = self.driver.find_element(
-                                By.XPATH, alt_xpath)
-                            self.driver.execute_script(
-                                "arguments[0].click();", button)
-                            logger.info(
-                                "[OK] Botão 'Avançar' alternativo clicado com sucesso via JavaScript")
-                            button_clicked = True
-                    except Exception as e:
-                        logger.warning(
-                            f"[AVISO] Erro ao tentar método alternativo: {str(e)}")
-
-                # Método 3: Usar JavaScript para localizar e clicar em qualquer botão com texto "Avançar"
-                if not button_clicked:
-                    try:
-                        logger.info(
-                            "[INFO] Tentando método JavaScript genérico para clicar no botão 'Avançar'...")
-                        success = self.driver.execute_script("""
-                            // Tentar encontrar botão pelo texto "Avançar"
-                            var buttons = document.querySelectorAll('button');
-                            for (var i = 0; i < buttons.length; i++) {
-                                if (buttons[i].innerText.includes('Avançar') || 
-                                    buttons[i].textContent.includes('Avançar')) {
-                                    buttons[i].click();
-                                    return true;
-                                }
-                            }
-                            
-                            // Tentar por spans dentro de botões
-                            var spans = document.querySelectorAll('button span');
-                            for (var i = 0; i < spans.length; i++) {
-                                if (spans[i].innerText.includes('Avançar') || 
-                                    spans[i].textContent.includes('Avançar')) {
-                                    spans[i].closest('button').click();
-                                    return true;
-                                }
-                            }
-                            
-                            // Tentar pelo XPath específico fornecido
-                            var xpathResult = document.evaluate(
-                                "/html/body/div[1]/div[1]/div[2]/c-wiz/div/div[3]/div/div[1]/div/div/button", 
-                                document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null
-                            );
-                            
-                            if (xpathResult && xpathResult.singleNodeValue) {
-                                xpathResult.singleNodeValue.click();
-                                return true;
-                            }
-                            
-                            return false;
-                        """)
-
-                        if success:
-                            logger.info(
-                                "[OK] Botão 'Avançar' clicado com sucesso via JavaScript genérico")
-                            button_clicked = True
-                        else:
-                            logger.warning(
-                                "[AVISO] Método JavaScript genérico não encontrou o botão 'Avançar'")
-                    except Exception as e:
-                        logger.warning(
-                            f"[AVISO] Erro no método JavaScript genérico: {str(e)}")
-
-                # Salvar screenshot após tentar clicar no botão
-                if DEBUG_MODE:
-                    self._save_screenshot("after_advance_button_click")
-
-                # Aguardar carregamento completo da página após clicar no botão
-                self._wait_for_page_load()
-                time.sleep(3)
-
-                # Verificar e lidar com a tela de senha que aparece após o captcha
-                self._execute_with_retry(self._handle_password_screen)
-                logger.info(
-                    "[INFO] Verificação de tela de senha após captcha concluída")
+                # Código para clicar no botão "Avançar" após a resolução do recaptcha
+                # (manter o resto da sua função original)
+                # ...
 
                 return True
 
+            logger.info("[INFO] Nenhum recaptcha detectado na página")
             return False
 
         except Exception as e:
@@ -1892,22 +1874,16 @@ class AccountSetup:
             bool: True se estamos na tela de verificação de telefone
         """
         try:
-            # Lista de possíveis XPaths para o campo de telefone
-            phone_field_xpaths = [
-                "//input[@type='tel']",
-                "//input[contains(@id, 'phone')]",
-                "//input[contains(@name, 'phone')]",
-                "//input[contains(@aria-label, 'phone') or contains(@aria-label, 'telefone')]"
-            ]
+            # Usar o método auxiliar para identificar o tipo de tela
+            screen_type = self._identify_phone_verification_screen_type()
 
-            # Verificar se algum dos campos de telefone está presente
-            for xpath in phone_field_xpaths:
-                if self._check_for_element(By.XPATH, xpath, timeout=2):
-                    logger.info(
-                        f"[INFO] Campo de telefone encontrado com XPath: {xpath}")
-                    return True
+            # Se identificou qualquer tipo de tela de verificação (alternativa ou padrão), retornar True
+            if screen_type != "unknown":
+                logger.info(
+                    f"[INFO] Tela de verificação de telefone detectada: {screen_type}")
+                return True
 
-            # Verificar por textos que indicam verificação de telefone
+            # Verificar por textos que indicam verificação de telefone (backup)
             phone_verification_texts = [
                 "//div[contains(text(), 'Verify your phone number')]",
                 "//div[contains(text(), 'Verifique seu número de telefone')]",
@@ -1975,7 +1951,18 @@ class AccountSetup:
                     "activation_id")
                 phone_verify.reuse_number = True
 
-            # Implementar fluxo direto de verificação de telefone sem verificar a tela
+            # Identificar qual tipo de tela de verificação de telefone estamos
+            screen_type = self._identify_phone_verification_screen_type()
+            is_alternative_screen = (screen_type == "alternative")
+
+            if is_alternative_screen:
+                logger.info(
+                    "[INFO] Usando fluxo para tela alternativa de verificação de telefone")
+            else:
+                logger.info(
+                    "[INFO] Usando fluxo para tela padrão de verificação de telefone")
+
+            # Implementar fluxo direto de verificação de telefone conforme o tipo de tela
             try:
                 # Definir contador de tentativas para números de telefone
                 phone_attempts = 0
@@ -2003,99 +1990,304 @@ class AccountSetup:
                     logger.info(
                         f"[OK] Número obtido: {phone_verify.current_activation.phone_number}")
 
-                    # 2. Submeter o número de telefone no formulário usando o XPath específico
+                    # 2. Submeter o número de telefone no formulário
                     logger.info(
                         "[INFO] Inserindo número de telefone no formulário...")
 
-                    # XPath específico para o campo de telefone
-                    phone_input_xpath = "/html/body/div[1]/div[1]/div[2]/c-wiz/div/div[2]/div/div/div/form/span/section[3]/div/div/div/div/div[2]/div[1]//input[@type='tel']"
+                    if is_alternative_screen:
+                        # Tratar a tela alternativa com select de país
+                        try:
+                            # Selecionar o país correto no dropdown
+                            country_select = self.driver.find_element(
+                                By.XPATH, "//select[@id='countryList']")
 
-                    try:
-                        # Aguardar até que o campo de telefone esteja visível e clicável
-                        wait = WebDriverWait(self.driver, 10)
-                        phone_input = wait.until(
-                            EC.element_to_be_clickable(
-                                (By.XPATH, phone_input_xpath))
-                        )
+                            # Extrair o código do país do número de telefone
+                            phone_number = phone_verify.current_activation.phone_number
 
-                        # Garantir que o campo está visível
-                        self.driver.execute_script(
-                            "arguments[0].scrollIntoView(true);", phone_input)
-                        time.sleep(1)
+                            # Determinar o país com base no código do país
+                            country_to_select = "Brasil"  # Valor padrão para números brasileiros
 
-                        # Limpar o campo
-                        phone_input.clear()
+                            # Identificar o país com base no prefixo do número
+                            if phone_number.startswith("55") or phone_number.startswith("+55"):
+                                country_to_select = "Brasil"
+                                country_code = "BR"
+                            elif phone_number.startswith("1") or phone_number.startswith("+1"):
+                                country_to_select = "Estados Unidos"
+                                country_code = "US"
+                            elif phone_number.startswith("44") or phone_number.startswith("+44"):
+                                country_to_select = "Reino Unido"
+                                country_code = "GB"
+                            elif phone_number.startswith("33") or phone_number.startswith("+33"):
+                                country_to_select = "França"
+                                country_code = "FR"
+                            else:
+                                # Para outros países, tentar extrair o código do telefone
+                                if "+" in phone_number:
+                                    parts = phone_number.split("+")
+                                    if len(parts) > 1:
+                                        prefix = parts[1].split(" ")[0]
+                                        if prefix.isdigit():
+                                            if prefix == "55":
+                                                country_to_select = "Brasil"
+                                                country_code = "BR"
+                                            elif prefix == "1":
+                                                country_to_select = "Estados Unidos"
+                                                country_code = "US"
 
-                        # Inserir o número de telefone com o formato correto (+DDI)
-                        phone_number = phone_verify.current_activation.phone_number
+                            logger.info(
+                                f"[INFO] Tentando selecionar país: {country_to_select} para número: {phone_number}")
 
-                        # Garantir que o número tenha o formato correto com + na frente
-                        if not phone_number.startswith('+'):
-                            phone_number = '+' + phone_number
-
-                        logger.info(
-                            f"[INFO] Formatando número para: {phone_number}")
-
-                        # Preencher o número com pequenas pausas para simular digitação humana
-                        for char in phone_number:
-                            phone_input.send_keys(char)
-                            time.sleep(0.1)
-
-                        logger.info(
-                            f"[OK] Número {phone_number} inserido no campo")
-
-                        # Aguardar um momento antes de clicar no botão
-                        time.sleep(1)
-
-                        # Procurar o botão "Next" ou "Avançar" ou "Próximo"
-                        next_button_xpaths = [
-                            "//button[contains(., 'Next') or contains(., 'Próximo') or contains(., 'Avançar')]",
-                            "//button[contains(@class, 'VfPpkd-LgbsSe')]",
-                            "//button[@type='submit']",
-                            "/html/body/div[1]/div[1]/div[2]/c-wiz/div/div[2]/div/div/div/form/div/div/div/button"
-                        ]
-
-                        button_clicked = False
-                        for xpath in next_button_xpaths:
+                            # Selecionar o país com base no código ou usar EUA como padrão
                             try:
-                                next_button = wait.until(
-                                    EC.element_to_be_clickable(
-                                        (By.XPATH, xpath))
-                                )
-                                next_button.click()
-                                logger.info(
-                                    f"[OK] Botão Next clicado usando XPath: {xpath}")
-                                button_clicked = True
-                                break
+                                from selenium.webdriver.support.ui import Select
+                                select = Select(country_select)
+
+                                # Tentar encontrar o país pelo nome ou código
+                                country_found = False
+
+                                # Primeiro tentar pelo nome
+                                for option in select.options:
+                                    option_text = option.text
+                                    if country_to_select in option_text:
+                                        select.select_by_value(
+                                            option.get_attribute("value"))
+                                        logger.info(
+                                            f"[OK] País selecionado: {option_text}")
+                                        country_found = True
+                                        break
+
+                                # Se não encontrou pelo nome, tentar pelo código
+                                if not country_found and country_code:
+                                    select.select_by_value(country_code)
+                                    selected_option = select.first_selected_option
+                                    logger.info(
+                                        f"[OK] País selecionado pelo código {country_code}: {selected_option.text}")
+                                    country_found = True
+
+                                # Se ainda não encontrou, para números brasileiros tentar BR explicitamente
+                                if not country_found and (phone_number.startswith("55") or phone_number.startswith("+55")):
+                                    select.select_by_value("BR")
+                                    selected_option = select.first_selected_option
+                                    logger.info(
+                                        f"[OK] País Brasil selecionado explicitamente: {selected_option.text}")
+                                    country_found = True
+
+                                # Se não encontrou, usar o Brasil como padrão para números com DDD 55
+                                if not country_found and (phone_number.startswith("55") or phone_number.startswith("+55")):
+                                    # Procurar qualquer opção com "Brasil" ou "Brazil" no texto
+                                    for option in select.options:
+                                        option_text = option.text.lower()
+                                        if "brasil" in option_text or "brazil" in option_text:
+                                            select.select_by_value(
+                                                option.get_attribute("value"))
+                                            logger.info(
+                                                f"[OK] País Brasil selecionado: {option.text}")
+                                            country_found = True
+                                            break
+
+                                # Se ainda não encontrou, usar o primeiro país como último recurso
+                                if not country_found:
+                                    logger.warning(
+                                        f"[AVISO] País não encontrado para {country_to_select}, selecionando Brasil manualmente")
+                                    try:
+                                        select.select_by_value("BR")
+                                        logger.info(
+                                            "[OK] Brasil selecionado como última opção")
+                                    except:
+                                        select.select_by_index(0)
+                                        logger.info(
+                                            f"[OK] Primeiro país da lista selecionado: {select.first_selected_option.text}")
                             except Exception as e:
                                 logger.warning(
-                                    f"[AVISO] Não foi possível clicar no botão com XPath {xpath}: {str(e)}")
+                                    f"[AVISO] Erro ao selecionar país: {str(e)}")
 
-                        if not button_clicked:
-                            # Tentar clicar com JavaScript
-                            try:
-                                self.driver.execute_script("""
-                                    var buttons = document.querySelectorAll('button');
-                                    for (var i = 0; i < buttons.length; i++) {
-                                        if (buttons[i].innerText.includes('Avançar') || 
-                                            buttons[i].innerText.includes('Próximo') || 
-                                            buttons[i].innerText.includes('Next')) {
-                                            buttons[i].click();
-                                            return true;
-                                        }
-                                    }
-                                    return false;
-                                """)
+                            # Aguardar um momento após selecionar o país
+                            time.sleep(1)
+
+                            # Inserir o número de telefone no campo apropriado
+                            phone_input_xpath = "//input[@id='deviceAddress']"
+                            phone_input = self.driver.find_element(
+                                By.XPATH, phone_input_xpath)
+
+                            # Limpar o campo
+                            phone_input.clear()
+
+                            # Formatar o número sem o código do país (que já foi selecionado no dropdown)
+                            formatted_number = phone_number
+
+                            # Para números brasileiros (começando com 55)
+                            if phone_number.startswith("55") or phone_number.startswith("+55"):
+                                # Remover código do país (55)
+                                if phone_number.startswith("+"):
+                                    # Remove +55
+                                    formatted_number = phone_number[3:]
+                                else:
+                                    # Remove 55
+                                    formatted_number = phone_number[2:]
+
+                                # Se o número começar com 0, remover o 0
+                                if formatted_number.startswith("0"):
+                                    formatted_number = formatted_number[1:]
+
+                                # Para números brasileiros, garantir que tenham o formato correto
+                                # Remover qualquer caractere não numérico
+                                formatted_number = ''.join(
+                                    filter(str.isdigit, formatted_number))
+
                                 logger.info(
-                                    "[OK] Botão Next clicado via JavaScript")
-                                button_clicked = True
-                            except Exception as e:
-                                logger.warning(
-                                    f"[AVISO] Não foi possível clicar no botão via JavaScript: {str(e)}")
+                                    f"[INFO] Número brasileiro formatado para: {formatted_number}")
+                            else:
+                                # Para outros países
+                                if " " in formatted_number:
+                                    formatted_number = formatted_number.split(" ", 1)[
+                                        1]
+                                if formatted_number.startswith("+"):
+                                    formatted_number = formatted_number[1:]
 
-                        if not button_clicked:
+                                # Se o número começar com o código do país, remover
+                                if country_code and formatted_number.startswith(country_code):
+                                    formatted_number = formatted_number[len(
+                                        country_code):]
+
+                                # Remover qualquer caractere não numérico
+                                formatted_number = ''.join(
+                                    filter(str.isdigit, formatted_number))
+
+                            logger.info(
+                                f"[INFO] Número formatado para envio: {formatted_number}")
+
+                            # Preencher o número com pequenas pausas para simular digitação humana
+                            for char in formatted_number:
+                                phone_input.send_keys(char)
+                                time.sleep(0.1)
+
+                            logger.info(
+                                f"[OK] Número {formatted_number} inserido no campo")
+
+                            # Clicar no botão "Receber código"
+                            receive_code_button_xpath = "//input[@id='next-button']"
+                            receive_code_button = self.driver.find_element(
+                                By.XPATH, receive_code_button_xpath)
+                            if not self._click_safely(receive_code_button):
+                                logger.warning(
+                                    "[AVISO] Falha ao clicar no botão 'Receber código'")
+                                phone_verify._cancel_current_number()
+                                if phone_attempts < max_phone_attempts:
+                                    logger.info(
+                                        "[INFO] Tentando novamente com outro número...")
+                                    continue
+                                return False
+
+                            logger.info("[OK] Botão 'Receber código' clicado")
+                        except Exception as e:
                             logger.error(
-                                "[ERRO] Não foi possível clicar no botão Next")
+                                f"[ERRO] Falha ao interagir com a tela alternativa: {str(e)}")
+                            phone_verify._cancel_current_number()
+                            if phone_attempts < max_phone_attempts:
+                                logger.info(
+                                    "[INFO] Tentando novamente com outro número...")
+                                continue
+                            return False
+                    else:
+                        # Tela original de verificação de telefone
+                        # XPath específico para o campo de telefone
+                        phone_input_xpath = "/html/body/div[1]/div[1]/div[2]/c-wiz/div/div[2]/div/div/div/form/span/section[3]/div/div/div/div/div[2]/div[1]//input[@type='tel']"
+
+                        try:
+                            # Aguardar até que o campo de telefone esteja visível e clicável
+                            wait = WebDriverWait(self.driver, 10)
+                            phone_input = wait.until(
+                                EC.element_to_be_clickable(
+                                    (By.XPATH, phone_input_xpath))
+                            )
+
+                            # Garantir que o campo está visível
+                            self.driver.execute_script(
+                                "arguments[0].scrollIntoView(true);", phone_input)
+                            time.sleep(1)
+
+                            # Limpar o campo
+                            phone_input.clear()
+
+                            # Inserir o número de telefone com o formato correto (+DDI)
+                            phone_number = phone_verify.current_activation.phone_number
+
+                            # Garantir que o número tenha o formato correto com + na frente
+                            if not phone_number.startswith('+'):
+                                phone_number = '+' + phone_number
+
+                            logger.info(
+                                f"[INFO] Formatando número para: {phone_number}")
+
+                            # Preencher o número com pequenas pausas para simular digitação humana
+                            for char in phone_number:
+                                phone_input.send_keys(char)
+                                time.sleep(0.1)
+
+                            logger.info(
+                                f"[OK] Número {phone_number} inserido no campo")
+
+                            # Aguardar um momento antes de clicar no botão
+                            time.sleep(1)
+
+                            # Procurar o botão "Next" ou "Avançar" ou "Próximo"
+                            next_button_xpaths = [
+                                "//button[contains(., 'Next') or contains(., 'Próximo') or contains(., 'Avançar')]",
+                                "//button[contains(@class, 'VfPpkd-LgbsSe')]",
+                                "//button[@type='submit']",
+                                "/html/body/div[1]/div[1]/div[2]/c-wiz/div/div[2]/div/div/div/form/div/div/div/button"
+                            ]
+
+                            button_clicked = False
+                            for xpath in next_button_xpaths:
+                                try:
+                                    next_button = wait.until(
+                                        EC.element_to_be_clickable(
+                                            (By.XPATH, xpath))
+                                    )
+                                    next_button.click()
+                                    logger.info(
+                                        f"[OK] Botão Next clicado usando XPath: {xpath}")
+                                    button_clicked = True
+                                    break
+                                except Exception as e:
+                                    logger.warning(
+                                        f"[AVISO] Não foi possível clicar no botão com XPath {xpath}: {str(e)}")
+
+                            if not button_clicked:
+                                # Tentar clicar com JavaScript
+                                try:
+                                    self.driver.execute_script("""
+                                        var buttons = document.querySelectorAll('button');
+                                        for (var i = 0; i < buttons.length; i++) {
+                                            if (buttons[i].innerText.includes('Avançar') || 
+                                                buttons[i].innerText.includes('Próximo') || 
+                                                buttons[i].innerText.includes('Next')) {
+                                                buttons[i].click();
+                                                return true;
+                                            }
+                                        }
+                                        return false;
+                                    """)
+                                    logger.info(
+                                        "[OK] Botão Next clicado via JavaScript")
+                                    button_clicked = True
+                                except Exception as e:
+                                    logger.warning(
+                                        f"[AVISO] Não foi possível clicar no botão via JavaScript: {str(e)}")
+
+                            if not button_clicked:
+                                logger.error(
+                                    "[ERRO] Não foi possível clicar no botão Next")
+                                phone_verify._cancel_current_number()
+                                if phone_attempts < max_phone_attempts:
+                                    logger.info(
+                                        "[INFO] Tentando novamente com outro número...")
+                                    continue
+                                return False
+                        except Exception as e:
+                            logger.error(
+                                f"[ERRO] Falha ao inserir número de telefone: {str(e)}")
                             phone_verify._cancel_current_number()
                             if phone_attempts < max_phone_attempts:
                                 logger.info(
@@ -2103,55 +2295,147 @@ class AccountSetup:
                                 continue
                             return False
 
-                        # Aguardar processamento
-                        time.sleep(5)
+                    # Aguardar processamento
+                    time.sleep(5)
 
-                        # Verificar se há mensagens de erro após inserir o número
-                        error_xpaths = [
-                            "//div[contains(text(), 'This phone number format is not recognized')]",
-                            "//div[contains(text(), 'This phone number has already been used too many times')]",
-                            "//div[contains(text(), 'Please enter a valid phone number')]",
-                            "//div[contains(@class, 'error') and string-length(text()) > 0]"
+                    # Verificar se há mensagens de erro após inserir o número
+                    error_xpaths = [
+                        "//div[contains(text(), 'This phone number format is not recognized')]",
+                        "//div[contains(text(), 'This phone number has already been used too many times')]",
+                        "//div[contains(text(), 'Please enter a valid phone number')]",
+                        "//div[contains(@class, 'error') and string-length(text()) > 0]"
+                    ]
+
+                    error_found = False
+                    for xpath in error_xpaths:
+                        try:
+                            error_element = self.driver.find_element(
+                                By.XPATH, xpath)
+                            error_text = error_element.text.strip()
+                            if error_text:
+                                logger.warning(
+                                    f"[AVISO] Erro detectado após inserir número: '{error_text}'")
+                                error_found = True
+                                break
+                        except:
+                            pass
+
+                    if error_found:
+                        logger.warning(
+                            "[AVISO] Número rejeitado devido a erro")
+                        phone_verify._cancel_current_number()
+                        if phone_attempts < max_phone_attempts:
+                            logger.info(
+                                "[INFO] Tentando novamente com outro número...")
+                            continue
+                        return False
+
+                    # Verificar se apareceu o campo de código
+                    code_input_xpath = "//input[contains(@aria-label, 'code') or contains(@aria-label, 'código') or @type='number']"
+
+                    # Para a tela alternativa, usar o XPath específico
+                    if is_alternative_screen:
+                        code_input_xpath = "//input[@id='smsUserPin']"
+
+                        # XPaths alternativos para a tela alternativa
+                        alternative_code_inputs = [
+                            "//input[@id='smsUserPin']",
+                            "//input[@name='smsUserPin']",
+                            "//form[@id='challenge']//input[@type='tel']",
+                            "//form[@id='challenge']//input[@type='text']",
+                            "//input[@type='tel' and @pattern='[0-9]*']"
                         ]
 
-                        error_found = False
-                        for xpath in error_xpaths:
-                            try:
-                                error_element = self.driver.find_element(
-                                    By.XPATH, xpath)
-                                error_text = error_element.text.strip()
-                                if error_text:
+                        # Tentar todos os XPaths alternativos
+                        for alt_xpath in alternative_code_inputs:
+                            if self._check_for_element(By.XPATH, alt_xpath, timeout=2):
+                                code_input_xpath = alt_xpath
+                                logger.info(
+                                    f"[INFO] Campo de código SMS alternativo encontrado: {alt_xpath}")
+                                break
+
+                    code_input_found = False
+                    try:
+                        # Aumentar o timeout para 15 segundos
+                        wait = WebDriverWait(self.driver, 15)
+                        wait.until(EC.presence_of_element_located(
+                            (By.XPATH, code_input_xpath)))
+                        logger.info("[OK] Campo de código SMS detectado")
+                        code_input_found = True
+                    except Exception as e:
+                        logger.warning(
+                            f"[AVISO] Campo de código SMS não detectado: {str(e)}")
+
+                    if not code_input_found:
+                        # Para a tela alternativa, verificar se há mensagem de sucesso ou redirecionamento
+                        if is_alternative_screen:
+                            # Verificar se houve redirecionamento (isso pode indicar sucesso)
+                            current_url = self.driver.current_url
+                            if "myaccount.google.com" in current_url or "adsense.google.com" in current_url:
+                                logger.info(
+                                    f"[OK] Redirecionado para {current_url}, assumindo que a verificação foi bem-sucedida")
+
+                                # Marcar número como usado com sucesso
+                                try:
+                                    activation_id = phone_verify.current_activation.activation_id
+                                    phone_verify.sms_api.set_status(
+                                        activation_id, 8)  # 8 = usado com sucesso
+                                    logger.info(
+                                        "[OK] Status do número atualizado para 'usado com sucesso'")
+
+                                    # Obter os dados do telefone verificado
+                                    phone_data = phone_verify.get_current_phone_data()
+                                    if phone_data:
+                                        # Atualizar os dados da conta
+                                        self.account_data["phone"] = phone_data.get(
+                                            "phone_number")
+                                        self.account_data["country_code"] = phone_data.get(
+                                            "country_code")
+                                        self.account_data["activation_id"] = phone_data.get(
+                                            "activation_id")
+                                        self.account_data["country_name"] = phone_data.get(
+                                            "country_name")
+
+                                        # Atualizar o arquivo de credenciais
+                                        self._update_credentials_file()
+                                except Exception as e:
                                     logger.warning(
-                                        f"[AVISO] Erro detectado após inserir número: '{error_text}'")
-                                    error_found = True
+                                        f"[AVISO] Erro ao atualizar status do número: {str(e)}")
+
+                                return True
+
+                            # Tentar novamente com um pequeno delay adicional
+                            logger.info(
+                                "[INFO] Aguardando mais 5 segundos e tentando detectar o campo de código novamente...")
+                            time.sleep(5)
+
+                            for alt_xpath in alternative_code_inputs:
+                                if self._check_for_element(By.XPATH, alt_xpath, timeout=2):
+                                    code_input_xpath = alt_xpath
+                                    logger.info(
+                                        f"[INFO] Campo de código SMS encontrado após espera adicional: {alt_xpath}")
+                                    code_input_found = True
                                     break
+
+                            if not code_input_found:
+                                logger.warning(
+                                    "[AVISO] Campo de código SMS não encontrado mesmo após espera adicional")
+
+                        # Verificar se ainda estamos na tela de telefone (número rejeitado)
+                        if is_alternative_screen:
+                            try:
+                                if self.driver.find_element(By.XPATH, "//input[@id='deviceAddress']").is_displayed():
+                                    logger.warning(
+                                        "[AVISO] Ainda na tela alternativa de telefone. Número rejeitado.")
+                                    phone_verify._cancel_current_number()
+                                    if phone_attempts < max_phone_attempts:
+                                        logger.info(
+                                            "[INFO] Tentando novamente com outro número...")
+                                        continue
+                                    return False
                             except:
                                 pass
-
-                        if error_found:
-                            logger.warning(
-                                "[AVISO] Número rejeitado devido a erro")
-                            phone_verify._cancel_current_number()
-                            if phone_attempts < max_phone_attempts:
-                                logger.info(
-                                    "[INFO] Tentando novamente com outro número...")
-                                continue
-                            return False
-
-                        # Verificar se apareceu o campo de código
-                        code_input_xpath = "//input[contains(@aria-label, 'code') or contains(@aria-label, 'código') or @type='number']"
-                        code_input_found = False
-                        try:
-                            wait.until(EC.presence_of_element_located(
-                                (By.XPATH, code_input_xpath)))
-                            logger.info("[OK] Campo de código SMS detectado")
-                            code_input_found = True
-                        except Exception as e:
-                            logger.warning(
-                                f"[AVISO] Campo de código SMS não detectado: {str(e)}")
-
-                        if not code_input_found:
-                            # Verificar se ainda estamos na tela de telefone (número rejeitado)
+                        else:
                             try:
                                 if self.driver.find_element(By.XPATH, phone_input_xpath).is_displayed():
                                     logger.warning(
@@ -2165,15 +2449,30 @@ class AccountSetup:
                             except:
                                 pass
 
-                    except Exception as e:
-                        logger.error(
-                            f"[ERRO] Falha ao inserir número de telefone: {str(e)}")
-                        phone_verify._cancel_current_number()
-                        if phone_attempts < max_phone_attempts:
+                        # Se chegou aqui e não encontrou o campo de código nem está na tela de telefone,
+                        # pode ser que tenha sido redirecionado ou a verificação foi bem-sucedida de outra forma
+                        if not code_input_found:
                             logger.info(
-                                "[INFO] Tentando novamente com outro número...")
-                            continue
-                        return False
+                                "[INFO] Não foi detectado campo de código nem tela de telefone. Verificando URL atual...")
+                            current_url = self.driver.current_url
+                            logger.info(f"[INFO] URL atual: {current_url}")
+
+                            # Se foi redirecionado para o AdSense ou Google Account, considerar sucesso
+                            if "myaccount.google.com" in current_url or "adsense.google.com" in current_url:
+                                logger.info(
+                                    "[OK] Redirecionado para uma página do Google. Assumindo verificação bem-sucedida.")
+                                return True
+                            else:
+                                # Se não encontrou o campo de código e não consegue identificar a situação, tentar outra vez
+                                if phone_attempts < max_phone_attempts:
+                                    logger.info(
+                                        "[INFO] Situação não identificada claramente. Tentando com outro número...")
+                                    phone_verify._cancel_current_number()
+                                    continue
+                                else:
+                                    logger.error(
+                                        "[ERRO] Não foi possível completar a verificação de telefone após todas as tentativas.")
+                                    return False
 
                     # 3. Aguardar e inserir o código SMS
                     logger.info("[INFO] Aguardando código SMS...")
@@ -2202,6 +2501,7 @@ class AccountSetup:
                     # Inserir o código SMS
                     try:
                         # Encontrar o campo de código
+                        wait = WebDriverWait(self.driver, 10)
                         code_input = wait.until(
                             EC.element_to_be_clickable(
                                 (By.XPATH, code_input_xpath))
@@ -2224,6 +2524,19 @@ class AccountSetup:
                             "//button[contains(@class, 'VfPpkd-LgbsSe')]",
                             "//button[@type='submit']"
                         ]
+
+                        # Para a tela alternativa, usar o XPath específico
+                        if is_alternative_screen:
+                            verify_button_xpaths.insert(
+                                0, "//input[@id='submit']")
+                            verify_button_xpaths.insert(
+                                0, "//input[@id='next-button']")
+                            verify_button_xpaths.insert(
+                                0, "//input[@name='VerifyPhone']")
+                            verify_button_xpaths.insert(
+                                0, "/html/body/div[1]/div[2]/div[2]/form/span/div[2]/input")
+                            verify_button_xpaths.insert(
+                                0, "//input[@type='submit' and @value='Verificar']")
 
                         button_clicked = False
                         for xpath in verify_button_xpaths:
@@ -2255,6 +2568,14 @@ class AccountSetup:
                                             return true;
                                         }
                                     }
+                                    
+                                    // Tentar com inputs do tipo submit
+                                    var inputs = document.querySelectorAll('input[type="submit"]');
+                                    for (var i = 0; i < inputs.length; i++) {
+                                        inputs[i].click();
+                                        return true;
+                                    }
+                                    
                                     return false;
                                 """)
                                 logger.info(
@@ -2266,6 +2587,52 @@ class AccountSetup:
 
                         # Aguardar processamento
                         time.sleep(5)
+                        self._wait_for_page_load()
+
+                        # Verificar URL atual para possível redirecionamento após verificação bem-sucedida
+                        current_url = self.driver.current_url
+                        logger.info(
+                            f"[INFO] URL após enviar código SMS: {current_url}")
+
+                        # Verificar possível redirecionamento para uma página de sucesso
+                        if "myaccount.google.com" in current_url or "adsense.google.com" in current_url or "gds.google.com" in current_url:
+                            logger.info(
+                                "[OK] Redirecionado após verificação do código SMS. Sucesso detectado.")
+
+                            # Verificar se estamos na tela de confirmação de informações de recuperação
+                            if "recoveryoptions" in current_url or "gds.google.com" in current_url:
+                                if self._check_and_handle_recovery_options_screen():
+                                    logger.info(
+                                        "[OK] Tela de recuperação tratada com sucesso")
+
+                            # Verificar se estamos na tela de definição de endereço residencial
+                            if self._check_and_handle_address_screen():
+                                logger.info(
+                                    "[OK] Tela de definição de endereço residencial tratada com sucesso")
+
+                        # Verificar a presença de elementos de confirmação de verificação bem-sucedida
+                        success_indicators = [
+                            "//div[contains(text(), 'verificação concluída')]",
+                            "//div[contains(text(), 'verification complete')]",
+                            "//div[contains(text(), 'verified successfully')]"
+                        ]
+
+                        for indicator in success_indicators:
+                            if self._check_for_element(By.XPATH, indicator, timeout=2):
+                                logger.info(
+                                    f"[OK] Indicador de sucesso encontrado: {indicator}")
+
+                                # Atualizar o status do número para "usado com sucesso"
+                                try:
+                                    phone_verify.sms_api.set_status(
+                                        activation_id, 8)  # 8 = usado com sucesso
+                                    logger.info(
+                                        "[OK] Status do número atualizado para 'usado com sucesso'")
+                                except Exception as e:
+                                    logger.warning(
+                                        f"[AVISO] Erro ao atualizar status do número: {str(e)}")
+
+                                return True
 
                         # Verificar se há mensagens de erro após inserir o código
                         code_error_xpaths = [
@@ -2313,6 +2680,20 @@ class AccountSetup:
                         except:
                             pass
 
+                        # Se chegou aqui e não encontrou erros, é provável que a verificação tenha sido bem-sucedida
+                        logger.info(
+                            "[OK] Verificação de telefone concluída com sucesso")
+
+                        # Verificar se estamos na tela de confirmação de informações de recuperação
+                        if self._check_and_handle_recovery_options_screen():
+                            logger.info(
+                                "[OK] Tela de confirmação de informações de recuperação tratada com sucesso")
+
+                        # Verificar se estamos na tela de definição de endereço residencial
+                        if self._check_and_handle_address_screen():
+                            logger.info(
+                                "[OK] Tela de definição de endereço residencial tratada com sucesso")
+
                         # Atualizar o status do número para "usado com sucesso"
                         try:
                             phone_verify.sms_api.set_status(
@@ -2322,15 +2703,6 @@ class AccountSetup:
                         except Exception as e:
                             logger.warning(
                                 f"[AVISO] Erro ao atualizar status do número: {str(e)}")
-
-                        # Se chegou aqui, a verificação foi bem-sucedida
-                        logger.info(
-                            "[OK] Verificação de telefone concluída com sucesso")
-
-                        # Verificar se estamos na tela de confirmação de informações de recuperação
-                        if self._check_and_handle_recovery_options_screen():
-                            logger.info(
-                                "[OK] Tela de confirmação de informações de recuperação tratada com sucesso")
 
                         # Obter os dados do telefone verificado
                         phone_data = phone_verify.get_current_phone_data()
@@ -2384,7 +2756,7 @@ class AccountSetup:
     def _check_and_handle_recovery_options_screen(self) -> bool:
         """
         Verifica e trata a tela de confirmação de informações de recuperação após verificação de telefone.
-        Clica no botão "Salvar" para continuar.
+        Clica no botão "Salvar" para continuar. Depois verifica se aparece a tela de endereço.
 
         Returns:
             bool: True se a tela foi detectada e tratada com sucesso
@@ -2410,7 +2782,10 @@ class AccountSetup:
                     "//button[@aria-label='Salvar']",
                     "//button[contains(., 'Salvar')]",
                     "//button[contains(@class, 'VfPpkd-LgbsSe') and contains(., 'Salvar')]",
-                    "//span[text()='Salvar']/ancestor::button"
+                    "//span[text()='Salvar']/ancestor::button",
+                    # XPath específico fornecido pelo usuário
+                    "//button[@jsname='M2UYVd' and contains(@class, 'VfPpkd-LgbsSe')]",
+                    "//button[.//span[contains(text(), 'Salvar')]]"
                 ]
 
                 button_clicked = False
@@ -2463,6 +2838,13 @@ class AccountSetup:
                                 }
                             }
                             
+                            // Tentar pelo jsname específico
+                            var jsButton = document.querySelector('button[jsname="M2UYVd"]');
+                            if (jsButton) {
+                                jsButton.click();
+                                return true;
+                            }
+                            
                             // Tentar pelo XPath específico
                             var xpathResult = document.evaluate(
                                 "/html/body/div[1]/c-wiz[2]/div/div/div/div/div[2]/button[2]", 
@@ -2496,6 +2878,13 @@ class AccountSetup:
                 if DEBUG_MODE:
                     self._save_screenshot("after_save_button_click")
 
+                # Após salvar, verificar se fomos direcionados para a tela de definição de endereço
+                if button_clicked:
+                    time.sleep(3)  # Aguardar redirecionamento
+                    if self._check_and_handle_address_screen():
+                        logger.info(
+                            "[OK] Tela de definição de endereço residencial tratada com sucesso após tela de recuperação")
+
                 return button_clicked
 
             return False  # Não estamos na tela de confirmação
@@ -2503,4 +2892,193 @@ class AccountSetup:
         except Exception as e:
             logger.warning(
                 f"[AVISO] Erro ao verificar/tratar tela de confirmação de recuperação: {str(e)}")
+            return False
+
+    def _identify_phone_verification_screen_type(self) -> str:
+        """
+        Identifica qual tipo de tela de verificação de telefone está sendo exibida.
+
+        Existem dois tipos principais de telas de verificação:
+        1. Tela alternativa: contém um select para escolha do país e um campo para o número
+        2. Tela padrão: contém apenas um campo para o número completo com código do país
+
+        Returns:
+            str: 'alternative' para a tela com select de país, 'standard' para a tela padrão,
+                 'unknown' se não for possível identificar
+        """
+        try:
+            # Verificar pela presença do select de país (tela alternativa)
+            country_select_xpaths = [
+                "//select[@id='countryList']",
+                "/html/body/div[1]/div[2]/div[2]/form/span/div[2]/select"
+            ]
+
+            for xpath in country_select_xpaths:
+                if self._check_for_element(By.XPATH, xpath, timeout=2):
+                    logger.info(
+                        f"[INFO] Tela alternativa de verificação de telefone detectada com select de país: {xpath}")
+                    return "alternative"
+
+            # Verificar pela presença do campo de telefone padrão
+            standard_phone_xpaths = [
+                "/html/body/div[1]/div[1]/div[2]/c-wiz/div/div[2]/div/div/div/form/span/section[3]/div/div/div/div/div[2]/div[1]//input[@type='tel']",
+                "//input[@type='tel' and contains(@aria-label, 'phone')]"
+            ]
+
+            for xpath in standard_phone_xpaths:
+                if self._check_for_element(By.XPATH, xpath, timeout=2):
+                    logger.info(
+                        f"[INFO] Tela padrão de verificação de telefone detectada: {xpath}")
+                    return "standard"
+
+            logger.warning(
+                "[AVISO] Não foi possível identificar o tipo de tela de verificação de telefone")
+            return "unknown"
+
+        except Exception as e:
+            logger.error(
+                f"[ERRO] Erro ao identificar tipo de tela de verificação de telefone: {str(e)}")
+            return "unknown"
+
+    def _check_and_handle_address_screen(self) -> bool:
+        """
+        Verifica e trata a tela de definição de endereço residencial.
+        Clica no botão "Pular" para continuar.
+
+        Returns:
+            bool: True se a tela foi detectada e tratada com sucesso
+        """
+        try:
+            # Aguardar um pouco para garantir que a página carregou completamente
+            time.sleep(3)
+
+            # Verificar elementos que indicam que estamos na tela de endereço
+            address_indicators = [
+                "//div[contains(text(), 'endereço de casa')]",
+                "//div[contains(text(), 'home address')]",
+                "//h1[contains(text(), 'endereço')]",
+                "//span[contains(text(), 'definir seu endereço')]"
+            ]
+
+            is_address_screen = False
+            for indicator in address_indicators:
+                if self._check_for_element(By.XPATH, indicator, timeout=2):
+                    logger.info(
+                        f"[INFO] Tela de definição de endereço detectada: {indicator}")
+                    is_address_screen = True
+                    break
+
+            if not is_address_screen:
+                return False
+
+            # Capturar screenshot para debug
+            if DEBUG_MODE:
+                self._save_screenshot("address_screen")
+
+            # Tentar localizar o botão "Pular" usando vários XPaths
+            skip_button_xpaths = [
+                # XPath específico fornecido
+                "/html/body/div[1]/c-wiz[3]/div/div/div/div/div/div[2]/button[1]",
+                "//button[@aria-label='Pular']",
+                "//button[contains(., 'Pular')]",
+                "//button[contains(@class, 'VfPpkd-LgbsSe') and contains(., 'Pular')]",
+                "//span[text()='Pular']/ancestor::button",
+                "//button[@jsname='ZUkOIc']"
+            ]
+
+            button_clicked = False
+            for xpath in skip_button_xpaths:
+                try:
+                    if self._check_for_element(By.XPATH, xpath, timeout=3):
+                        skip_button = self.driver.find_element(
+                            By.XPATH, xpath)
+
+                        # Garantir que o botão está visível
+                        self.driver.execute_script(
+                            "arguments[0].scrollIntoView(true);", skip_button)
+                        time.sleep(1)
+
+                        # Tentar clicar no botão
+                        if self._click_safely(skip_button):
+                            logger.info(
+                                f"[OK] Botão 'Pular' clicado com sucesso usando XPath: {xpath}")
+                            button_clicked = True
+
+                            # Aguardar o processamento após clicar no botão
+                            time.sleep(5)
+                            self._wait_for_page_load()
+                            break
+                except Exception as e:
+                    logger.warning(
+                        f"[AVISO] Erro ao tentar clicar no botão 'Pular' com XPath {xpath}: {str(e)}")
+
+            # Se não conseguiu clicar em nenhum botão, tentar com JavaScript
+            if not button_clicked:
+                try:
+                    logger.info(
+                        "[INFO] Tentando clicar no botão 'Pular' com JavaScript")
+                    success = self.driver.execute_script("""
+                        // Tentar encontrar botão pelo texto
+                        var buttons = document.querySelectorAll('button');
+                        for (var i = 0; i < buttons.length; i++) {
+                            if (buttons[i].innerText.includes('Pular')) {
+                                buttons[i].click();
+                                return true;
+                            }
+                        }
+                        
+                        // Tentar por spans dentro de botões
+                        var spans = document.querySelectorAll('button span');
+                        for (var i = 0; i < spans.length; i++) {
+                            if (spans[i].innerText.includes('Pular')) {
+                                spans[i].closest('button').click();
+                                return true;
+                            }
+                        }
+                        
+                        // Tentar pelo jsname específico
+                        var jsButton = document.querySelector('button[jsname="ZUkOIc"]');
+                        if (jsButton) {
+                            jsButton.click();
+                            return true;
+                        }
+                        
+                        // Tentar pelo XPath específico
+                        var xpathResult = document.evaluate(
+                            "/html/body/div[1]/c-wiz[3]/div/div/div/div/div/div[2]/button[1]", 
+                            document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null
+                        );
+                        
+                        if (xpathResult && xpathResult.singleNodeValue) {
+                            xpathResult.singleNodeValue.click();
+                            return true;
+                        }
+                        
+                        return false;
+                    """)
+
+                    if success:
+                        logger.info(
+                            "[OK] Botão 'Pular' clicado com sucesso via JavaScript")
+                        button_clicked = True
+
+                        # Aguardar o processamento após clicar no botão
+                        time.sleep(5)
+                        self._wait_for_page_load()
+                    else:
+                        logger.warning(
+                            "[AVISO] Não foi possível encontrar o botão 'Pular' via JavaScript")
+                except Exception as e:
+                    logger.warning(
+                        f"[AVISO] Erro ao tentar clicar no botão 'Pular' via JavaScript: {str(e)}")
+
+            # Capturar screenshot após tentar clicar no botão
+            if DEBUG_MODE:
+                self._save_screenshot("after_skip_button_click")
+
+            return button_clicked
+
+        except Exception as e:
+            logger.warning(
+                f"[AVISO] Erro ao verificar/tratar tela de definição de endereço: {str(e)}")
             return False

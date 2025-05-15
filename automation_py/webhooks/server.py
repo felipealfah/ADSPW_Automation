@@ -1573,14 +1573,13 @@ def process_adsense_code_capture(job_id, user_id, data):
                 logger.error(
                     f"[ADSENSE] Falha ao capturar códigos para o job {job_id}")
 
-            # Fechar o navegador ao finalizar
-            try:
-                # Não fechamos o navegador para permitir operações adicionais
+            # Fechar o navegador se close_browser for True (padrão)
+            close_browser = data.get('close_browser', True)
+            if close_browser:
+                close_browser_safely(adspower_manager, user_id, driver, job_id)
+            else:
                 logger.info(
-                    f"[ADSENSE] Navegador mantido aberto para operações adicionais")
-            except Exception as close_e:
-                logger.warning(
-                    f"[AVISO] Erro ao processar: {str(close_e)}")
+                    f"[ADSENSE] Navegador mantido aberto para operações adicionais (close_browser={close_browser})")
 
         except Exception as e:
             update_job_status(
@@ -1592,13 +1591,10 @@ def process_adsense_code_capture(job_id, user_id, data):
             logger.error(
                 f"[ERRO] Erro ao capturar códigos do AdSense: {str(e)}")
 
-            # Tentar fechar o navegador em caso de erro - também removido
-            try:
-                # browser_manager.close_browser()
-                logger.info(
-                    f"[ADSENSE] Navegador mantido aberto após erro para depuração")
-            except Exception:
-                pass
+            # Tentar fechar o navegador se close_browser for True (mesmo em caso de erro)
+            if close_browser and 'user_id' in locals() and 'adspower_manager' in locals():
+                close_browser_safely(adspower_manager, user_id, driver if 'driver' in locals(
+                ) else None, job_id, "após erro")
 
     except Exception as e:
         logger.error(
@@ -1614,154 +1610,205 @@ def process_adsense_code_capture(job_id, user_id, data):
             pass
 
 
-def process_adsense_verify_account(job_id, user_id, data):
+def close_browser_safely(adspower_manager, user_id, driver, job_id, step=""):
     """
-    Processa a verificação de uma conta AdSense em background.
-    Clica no botão de verificação para confirmar a associação do site.
+    Fecha o navegador de forma segura, tentando diferentes métodos.
 
     Args:
-        job_id: ID do job
+        adspower_manager: Instância do AdsPowerManager
         user_id: ID do perfil do AdsPower
-        data: Dados para verificação da conta
+        driver: Driver do Selenium (pode ser None)
+        job_id: ID do job para logs
+        step: Texto adicional para os logs (ex: "após erro")
+
+    Returns:
+        bool: True se o navegador foi fechado com sucesso
+    """
+    success = False
+    try:
+        logger.info(
+            f"[ADSENSE] Tentando fechar o navegador {step} para o job {job_id}")
+
+        # Primeira tentativa: usar o AdsPowerManager
+        if adspower_manager and user_id:
+            if adspower_manager.close_browser(user_id):
+                logger.info(
+                    f"[ADSENSE] Navegador fechado com sucesso {step} para o job {job_id}")
+                success = True
+            else:
+                logger.warning(
+                    f"[AVISO] AdsPowerManager não conseguiu fechar o navegador, tentando alternativa...")
+
+        # Segunda tentativa: usar driver.quit()
+        if not success and driver:
+            driver.quit()
+            logger.info(
+                f"[ADSENSE] Navegador fechado usando driver.quit() {step}")
+            success = True
+
+    except Exception as e:
+        logger.warning(f"[AVISO] Erro ao fechar navegador {step}: {str(e)}")
+        # Última tentativa
+        try:
+            if driver:
+                driver.quit()
+                logger.info(
+                    f"[ADSENSE] Navegador fechado com driver.quit() após erro {step}")
+                success = True
+        except Exception as e2:
+            logger.error(
+                f"[ERRO] Não foi possível fechar o navegador {step}: {str(e2)}")
+
+    return success
+
+
+def process_adsense_verify_account(job_id, user_id, data):
+    """
+    Processa a verificação de uma conta AdSense.
+
+    Args:
+        job_id: ID único do job
+        user_id: ID do perfil do AdsPower a ser utilizado
+        data: Dados adicionais para o processo
     """
     try:
-        # Atualizar status do job
-        update_job_status(
-            job_id=job_id,
-            status="processing",
-            message="Iniciando processo de verificação da conta AdSense"
-        )
+        # Configurar o log
+        logger.info(f"[ADSENSE] Iniciando verificação para o job {job_id}")
 
-        # Importar classes necessárias
-        try:
-            from automations.adsense_creator.verify_account import AdSenseAccountVerifier
-            from powerads_api.browser_manager import BrowserManager, BrowserConfig
-            from powerads_api.ads_power_manager import AdsPowerManager
-            import requests
-        except ImportError as e:
-            update_job_status(
-                job_id=job_id,
-                status="failed",
-                message=f"Erro ao importar dependências: {str(e)}",
-                error_details=f"Módulo não encontrado: {str(e)}. Verifique se o pacote adsense_creator está instalado."
-            )
-            logger.error(
-                f"[ERRO] Erro ao importar módulos para verificação de conta AdSense: {str(e)}")
-            return
-
-        # Obter credenciais
-        base_url = get_credential("PA_BASE_URL")
-        api_key = get_credential("PA_API_KEY")
-
-        if not base_url or not api_key:
-            update_job_status(
-                job_id=job_id,
-                status="failed",
-                message="Credenciais do AdsPower não configuradas",
-                error_details="As credenciais do AdsPower (PA_BASE_URL e/ou PA_API_KEY) não estão configuradas."
-            )
-            return
-
-        # Verificar se o perfil existe através de uma chamada API direta
-        try:
-            headers = {"Authorization": f"Bearer {api_key}"}
-            response = requests.get(
-                f"{base_url}/api/v1/user/list", headers=headers, timeout=30)
-
-            if response.status_code == 200:
-                api_data = response.json()
-                if api_data.get("code") == 0 and "list" in api_data.get("data", {}):
-                    profiles = api_data["data"]["list"]
-                    profile_exists = any(profile.get(
-                        "user_id") == user_id for profile in profiles)
-
-                    if not profile_exists:
-                        logger.warning(
-                            f"Perfil {user_id} não encontrado na lista de perfis. Perfis disponíveis: {[p.get('user_id') for p in profiles]}")
-                        update_job_status(
-                            job_id=job_id,
-                            status="failed",
-                            message=f"Perfil {user_id} não encontrado",
-                            error_details=f"O perfil com ID {user_id} não foi encontrado na lista de perfis do AdsPower. Verifique se o perfil existe e está ativo."
-                        )
-                        return
-                    else:
-                        logger.info(
-                            f"Perfil {user_id} encontrado. Continuando com a verificação da conta.")
-                else:
-                    logger.error(
-                        f"Resposta inválida da API ao listar perfis: {api_data}")
-                    update_job_status(
-                        job_id=job_id,
-                        status="failed",
-                        message="Falha ao verificar se o perfil existe",
-                        error_details=f"Resposta inválida da API AdsPower: {api_data}"
-                    )
-                    return
-            else:
-                logger.error(
-                    f"Falha ao consultar API do AdsPower: Status code {response.status_code}")
-                update_job_status(
-                    job_id=job_id,
-                    status="failed",
-                    message=f"Falha ao verificar perfil: Status code {response.status_code}",
-                    error_details=f"A API do AdsPower retornou status code {response.status_code} ao tentar listar perfis."
-                )
-                return
-        except Exception as e:
-            logger.error(f"Erro na requisição ao verificar perfil: {str(e)}")
-            update_job_status(
-                job_id=job_id,
-                status="failed",
-                message=f"Erro ao verificar perfil: {str(e)}",
-                error_details=f"Ocorreu um erro ao tentar verificar se o perfil existe: {str(e)}"
-            )
-            return
-
-        # Configurar browser manager
-        browser_config = BrowserConfig(
-            headless=data.get('headless', False),
-            max_wait_time=data.get('max_wait_time', 60)
-        )
+        # Configurações do navegador
+        headless = data.get('headless', False)
+        max_wait_time = data.get('max_wait_time', 60)
+        # Parâmetro para fechar o navegador (padrão: True)
+        close_browser = data.get('close_browser', True)
 
         try:
-            adspower_manager = AdsPowerManager(base_url, api_key)
-            browser_manager = BrowserManager(adspower_manager)
-            browser_manager.set_config(browser_config)
-
-            # Verificar se o AdsPower está acessível
-            if not adspower_manager.check_api_health(force_check=True):
-                update_job_status(
-                    job_id=job_id,
-                    status="failed",
-                    message="Não foi possível conectar ao AdsPower",
-                    error_details="Falha na conexão com a API do AdsPower. Verifique se o serviço está em execução."
-                )
-                return
-
-            # Inicializar o browser
+            # Iniciar o navegador
             update_job_status(
                 job_id=job_id,
                 status="processing",
-                message="Inicializando o navegador para verificação da conta"
+                message="Iniciando navegador"
             )
 
-            if not browser_manager.ensure_browser_ready(user_id):
+            # Importar as dependências com tratamento de erros
+            try:
+                from powerads_api.browser_manager import BrowserManager, BrowserConfig
+                from powerads_api.ads_power_manager import AdsPowerManager
+                from automations.adsense_creator.verify_account import AdSenseAccountVerifier
+                logger.info(
+                    "[OK] Todas as dependências importadas com sucesso")
+            except ImportError as ie:
+                error_msg = f"[ERRO] Falha ao importar dependências: {str(ie)}"
+                logger.error(error_msg)
                 update_job_status(
                     job_id=job_id,
                     status="failed",
-                    message="Falha ao inicializar o navegador",
-                    error_details="Não foi possível inicializar o navegador para o perfil especificado."
+                    message=f"Erro ao importar dependências: {str(ie)}",
+                    error_details=f"Módulo não encontrado. Verifique se todos os módulos necessários estão instalados e acessíveis."
                 )
                 return
 
-            driver = browser_manager.get_driver()
-            if not driver:
+            # Carregar credenciais
+            try:
+                # Carregar de credentials.json
+                credentials_path = os.path.join(os.path.dirname(
+                    os.path.dirname(__file__)), "credentials", "credentials.json")
+                if os.path.exists(credentials_path):
+                    with open(credentials_path, 'r') as f:
+                        credentials = json.load(f)
+
+                    base_url = credentials.get("PA_BASE_URL")
+                    api_key = credentials.get("PA_API_KEY")
+
+                    if not base_url or not api_key:
+                        update_job_status(
+                            job_id=job_id,
+                            status="failed",
+                            message="Credenciais do AdsPower não encontradas",
+                            error_details="As credenciais PA_BASE_URL e/ou PA_API_KEY não foram encontradas."
+                        )
+                        return
+
+                    logger.info("[OK] Credenciais carregadas com sucesso")
+                else:
+                    update_job_status(
+                        job_id=job_id,
+                        status="failed",
+                        message="Arquivo de credenciais não encontrado",
+                        error_details="O arquivo credentials.json não existe."
+                    )
+                    return
+            except Exception as e:
                 update_job_status(
                     job_id=job_id,
                     status="failed",
-                    message="Driver do navegador não disponível",
-                    error_details="Não foi possível obter o driver do navegador após inicialização."
+                    message=f"Erro ao carregar credenciais: {str(e)}",
+                    error_details=f"Ocorreu um erro ao carregar as credenciais: {str(e)}"
+                )
+                return
+
+            # Inicializar o AdsPower e o navegador
+            try:
+                # Inicializar AdsPowerManager
+                adspower_manager = AdsPowerManager(
+                    base_url=base_url, api_key=api_key)
+                logger.info("[OK] AdsPowerManager inicializado com sucesso")
+
+                # Inicializar BrowserManager e configurar
+                browser_manager = BrowserManager(adspower_manager)
+                browser_config = BrowserConfig(
+                    headless=headless,
+                    max_wait_time=max_wait_time
+                )
+                browser_manager.set_config(browser_config)
+
+                # Verificar se o navegador já está aberto
+                browser_info = adspower_manager.get_browser_info(user_id)
+
+                if browser_info and browser_info.get("selenium_ws"):
+                    logger.info(
+                        f"[INFO] Navegador para perfil {user_id} já está em execução, conectando ao mesmo")
+                    # Conectar diretamente ao navegador existente usando AdsPowerManager
+                    driver = adspower_manager.connect_selenium(browser_info)
+                else:
+                    # Se não estiver aberto, iniciar um novo
+                    logger.info(
+                        f"[INFO] Iniciando um novo navegador para o perfil {user_id}")
+                    success, browser_info = browser_manager.start_browser(
+                        user_id)
+
+                    if not success or not browser_info:
+                        update_job_status(
+                            job_id=job_id,
+                            status="failed",
+                            message="Falha ao iniciar o navegador",
+                            error_details="Não foi possível iniciar o navegador. Verifique se o AdsPower está em execução."
+                        )
+                        return
+
+                    # Conectar ao driver do Selenium usando AdsPowerManager
+                    driver = adspower_manager.connect_selenium(browser_info)
+
+                # Verificar se conseguimos obter o driver
+                if not driver:
+                    update_job_status(
+                        job_id=job_id,
+                        status="failed",
+                        message="Driver do navegador não disponível",
+                        error_details="Não foi possível conectar ao driver do navegador. Verifique se o AdsPower está em execução."
+                    )
+                    return
+
+                # Armazenar informações para fechamento posterior
+                driver.adspower_user_id = user_id
+                driver.browser_manager = browser_manager
+
+                logger.info("[OK] Conectado ao navegador com sucesso")
+            except Exception as e:
+                update_job_status(
+                    job_id=job_id,
+                    status="failed",
+                    message=f"Erro ao inicializar navegador: {str(e)}",
+                    error_details=f"Erro: {str(e)}"
                 )
                 return
 
@@ -1824,9 +1871,12 @@ def process_adsense_verify_account(job_id, user_id, data):
                 logger.error(
                     f"[ADSENSE] Falha ao verificar conta para o job {job_id}")
 
-            # Não fechamos o navegador para permitir operações adicionais
-            logger.info(
-                f"[ADSENSE] Navegador mantido aberto para operações adicionais")
+            # Fechar o navegador se close_browser for True (padrão)
+            if close_browser:
+                close_browser_safely(adspower_manager, user_id, driver, job_id)
+            else:
+                logger.info(
+                    f"[ADSENSE] Navegador mantido aberto para operações adicionais (close_browser={close_browser})")
 
         except Exception as e:
             update_job_status(
@@ -1837,9 +1887,10 @@ def process_adsense_verify_account(job_id, user_id, data):
             )
             logger.error(f"[ERRO] Erro ao verificar conta AdSense: {str(e)}")
 
-            # Não fechamos o navegador para permitir depuração
-            logger.info(
-                f"[ADSENSE] Navegador mantido aberto após erro para depuração")
+            # Tentar fechar o navegador se close_browser for True (mesmo em caso de erro)
+            if close_browser and 'user_id' in locals() and 'adspower_manager' in locals():
+                close_browser_safely(adspower_manager, user_id, driver if 'driver' in locals(
+                ) else None, job_id, "após erro")
 
     except Exception as e:
         logger.error(
@@ -1870,7 +1921,8 @@ async def verify_adsense_account(user_id: str, data: dict = None):
         "site_url": "fulled.com.br",         # URL do site a ser verificado
         "headless": false,                    # opcional - executar em modo headless
         "verification_xpath": "xpath_string", # opcional - XPath personalizado para o botão de verificação (usado apenas se pub_id e site_url não forem fornecidos)
-        "max_wait_time": 60                   # opcional - tempo máximo de espera em segundos
+        "max_wait_time": 60,                  # opcional - tempo máximo de espera em segundos
+        "close_browser": false                # opcional - fechar o navegador após a operação (padrão: true)
     }
 
     Resposta:
@@ -1911,12 +1963,14 @@ async def verify_adsense_account(user_id: str, data: dict = None):
             "headless": data.get('headless', False),
             "verification_xpath": data.get('verification_xpath'),
             "max_wait_time": data.get('max_wait_time', 60),
+            # Novo campo para controlar o fechamento do navegador (padrão: true)
+            "close_browser": data.get('close_browser', True),
             "message": "Processo de verificação de conta AdSense iniciado"
         }
 
         # Adicionar um log para verificar os dados recebidos
         logger.info(
-            f"[ADSENSE] Dados recebidos para verificação de conta: pub_id={data.get('pub_id')}, site_url={data.get('site_url')}")
+            f"[ADSENSE] Dados recebidos para verificação de conta: pub_id={data.get('pub_id')}, site_url={data.get('site_url')}, close_browser={data.get('close_browser', True)}")
 
         # Salvar dados do job em arquivo
         job_file = os.path.join(JOBS_DIR, f"{job_id}.json")

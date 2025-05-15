@@ -62,7 +62,7 @@ class WebsiteCodeInjector:
         """
         try:
             logger.info(
-                "[INICIO] Iniciando captura do código de verificação e publisher ID...")
+                "[INICIO] Iniciando captura do código de verificação...")
 
             # Verificar se estamos na página de onboarding do AdSense
             current_url = self.driver.current_url
@@ -72,23 +72,12 @@ class WebsiteCodeInjector:
             if DEBUG_MODE:
                 self._save_screenshot("adsense_onboarding_page")
 
-            # Extrair o publisher ID da URL
-            pub_id = self._extract_publisher_id(current_url)
-            if pub_id:
-                self.publisher_id = pub_id
-                logger.info(
-                    f"[OK] Publisher ID capturado com sucesso: {pub_id}")
-            else:
-                logger.error(
-                    "[ERRO] Não foi possível extrair o publisher ID da URL")
-                if DEBUG_MODE:
-                    self.clean_screenshots()
-                return False
-
             # Aguardar carregamento completo da página
             self._wait_for_page_load()
 
-            # Clicar no botão para ir para a próxima tela
+            # Clicar no botão para ir para a próxima tela - começamos diretamente daqui
+            logger.info(
+                "[INFO] Iniciando diretamente pelo clique no botão para próxima tela...")
             if not self._click_next_button():
                 logger.error(
                     "[ERRO] Não foi possível clicar no botão para próxima tela")
@@ -104,17 +93,31 @@ class WebsiteCodeInjector:
             if DEBUG_MODE:
                 self._save_screenshot("adsense_verification_page")
 
-            # Capturar a URL real do site da página
-            real_url = self._capture_real_site_url()
-            if real_url:
-                self.real_website_url = real_url
-                self.website_url = real_url  # Substituir pela URL real
-                logger.info(f"[OK] URL real do site capturada: {real_url}")
+            # Capturar o URL do site a partir do elemento <h2> na interface
+            site_url = self._capture_site_url_from_h2()
+            if site_url:
+                self.website_url = site_url
+                self.website_data["site_url"] = site_url
+                logger.info(
+                    f"[OK] URL do site capturado do elemento <h2>: {site_url}")
             else:
-                logger.warning(
-                    "[AVISO] Não foi possível capturar a URL real do site. Usando a URL fornecida na requisição.")
+                # Fallback para o URL fornecido no cadastro
+                site_url = self.website_data.get("website_url", "")
+                if site_url:
+                    # Garantir que o URL tenha o protocolo http:// ou https://
+                    if not site_url.startswith(('http://', 'https://')):
+                        site_url = 'https://' + site_url
+                    self.website_url = site_url
+                    self.website_data["site_url"] = site_url
+                    logger.info(
+                        f"[INFO] Usando URL do site do cadastro (fallback): {site_url}")
+                else:
+                    logger.warning(
+                        "[AVISO] Não foi possível determinar o URL do site")
 
-            # Clicar no radio button "Snippet do ads.txt"
+            # Clicar diretamente no radio button "Snippet do ads.txt", pulando etapas anteriores
+            logger.info(
+                "[INFO] Indo diretamente para a seleção do snippet do ads.txt...")
             if self._click_ads_txt_radio_button():
                 logger.info(
                     "[OK] Radio button 'Snippet do ads.txt' clicado com sucesso")
@@ -151,23 +154,43 @@ class WebsiteCodeInjector:
                     logger.warning(
                         "[AVISO] Não foi possível capturar o código de verificação da página")
 
-            # Retornar os dados capturados
+            # Extrair o publisher ID do código de verificação
+            if self.verification_code:
+                # Tentar extrair o pub-XXXXXXXXXXXXXXXX do código de verificação
+                pub_id_match = re.search(r'pub-\d+', self.verification_code)
+                if pub_id_match:
+                    full_pub_id = pub_id_match.group(0)
+                    logger.info(
+                        f"[OK] Publisher ID extraído do código de verificação: {full_pub_id}")
+
+                    # Extrair somente o número sem o prefixo "pub-"
+                    pub_number = full_pub_id.replace("pub-", "")
+                    self.publisher_id = pub_number  # Armazenar apenas o número, sem o prefixo
+                    self.website_data["pub"] = pub_number
+
+                # Extrair o ID direto (último campo após as vírgulas)
+                parts = self.verification_code.split(",")
+                if len(parts) >= 4:
+                    direct_id = parts[3].strip()
+                    self.website_data["direct"] = direct_id
+                    logger.info(
+                        f"[OK] ID direto extraído do código de verificação: {direct_id}")
+
+            # Atualizar os dados a serem retornados
+            # Agora contém apenas o número, sem o prefixo
             self.website_data["publisher_id"] = self.publisher_id
             self.website_data["verification_code"] = self.verification_code
-            # Atualizar com a URL real capturada
-            self.website_data["website_url"] = self.website_url
 
-            # Verificar se capturamos pelo menos um dos códigos
+            # Verificar se capturamos pelo menos o código de verificação
             if not self.verification_code:
                 logger.warning(
-                    "[AVISO] Não foi possível capturar nenhum código de verificação")
-                # Continuar mesmo sem o código de verificação, pois já temos o publisher ID
+                    "[AVISO] Não foi possível capturar o código de verificação")
 
             # Exportar os dados capturados se solicitado (agora falso por padrão)
             if export_data:
                 self.export_captured_data()
 
-            logger.info("[OK] Códigos capturados com sucesso")
+            logger.info("[OK] Código e publisher ID capturados com sucesso")
 
             # Limpar screenshots no final da execução bem-sucedida
             if DEBUG_MODE:
@@ -249,21 +272,24 @@ class WebsiteCodeInjector:
         try:
             logger.info("[INFO] Tentando clicar no botão para próxima tela...")
 
-            # XPath específico do botão fornecido
-            button_xpath = "/html/body/div[1]/bruschetta-app/as-exception-handler/div[2]/div/div[2]/div/main/div[1]/onboarding/as-exception-handler/onboarding-overview/div[2]/div/onboarding-card[3]/article/div[2]/button/material-ripple"
+            # XPath específico do botão fornecido pelo usuário
+            button_xpath = "/html/body/div[1]/bruschetta-app/as-exception-handler/div[2]/div/div[2]/div/main/div/onboarding/as-exception-handler/onboarding-overview/div[2]/div/onboarding-card[3]/article/div[2]/button/material-ripple"
 
-            # Tentar diferentes abordagens para encontrar e clicar no botão
+            # XPath do botão pai (sem o material-ripple)
+            parent_button_xpath = "/html/body/div[1]/bruschetta-app/as-exception-handler/div[2]/div/div[2]/div/main/div/onboarding/as-exception-handler/onboarding-overview/div[2]/div/onboarding-card[3]/article/div[2]/button"
 
-            # Abordagem 1: Tentar com o XPath específico
-            if self._check_element_exists(By.XPATH, button_xpath):
+            # Abordagem 1: Tentar com o XPath específico do material-ripple
+            if self._check_element_exists(By.XPATH, button_xpath, timeout=10):
                 button = self.driver.find_element(By.XPATH, button_xpath)
+                logger.info(
+                    "[INFO] Botão material-ripple encontrado, tentando clicar...")
                 return self._click_safely(button)
 
             # Abordagem 2: Tentar encontrar o botão pai
-            parent_button_xpath = "/html/body/div[1]/bruschetta-app/as-exception-handler/div[2]/div/div[2]/div/main/div[1]/onboarding/as-exception-handler/onboarding-overview/div[2]/div/onboarding-card[3]/article/div[2]/button"
-            if self._check_element_exists(By.XPATH, parent_button_xpath):
+            if self._check_element_exists(By.XPATH, parent_button_xpath, timeout=10):
                 parent_button = self.driver.find_element(
                     By.XPATH, parent_button_xpath)
+                logger.info("[INFO] Botão pai encontrado, tentando clicar...")
                 return self._click_safely(parent_button)
 
             # Abordagem 3: Tentar encontrar por seletores mais genéricos
@@ -614,26 +640,12 @@ class WebsiteCodeInjector:
         Returns:
             Dict[str, str]: Dicionário com dados processados
         """
-        # Obter o ID do publisher sem o prefixo "pub-"
-        pub_id = ""
-        if self.publisher_id and self.publisher_id.startswith("pub-"):
-            pub_id = self.publisher_id.replace("pub-", "")
-
-        # Extrair o ID direto do código ads.txt (último campo após as vírgulas)
-        direct_id = ""
-        if self.verification_code:
-            parts = self.verification_code.split(",")
-            if len(parts) >= 4:
-                direct_id = parts[3].strip()
-
         return {
-            # Original completo (para compatibilidade)
-            "publisher_id": self.publisher_id,
-            # Original completo (para compatibilidade)
+            "publisher_id": self.publisher_id,  # Apenas o número, sem "pub-"
             "verification_code": self.verification_code,
-            "pub": pub_id,  # Apenas o número, sem "pub-"
-            "direct": direct_id,  # Apenas o ID direto
-            "website_url": self.website_url  # Adicionar a URL real do site nos dados capturados
+            "pub": self.publisher_id,  # Mantém o número sem "pub-"
+            "direct": self.website_data.get("direct", ""),  # ID direto
+            "site_url": self.website_url  # URL do site que veio no cadastro
         }
 
     def _wait_for_page_load(self, timeout=10):
@@ -747,3 +759,55 @@ class WebsiteCodeInjector:
         except Exception as e:
             logger.error(f"[ERRO] Falha ao limpar screenshots: {str(e)}")
             return False
+
+    def _capture_site_url_from_h2(self) -> str:
+        """
+        Captura o URL do site a partir do elemento <h2> na interface.
+
+        Returns:
+            str: URL do site ou string vazia se não for possível capturar
+        """
+        try:
+            # XPath fornecido pelo usuário para o elemento <h2>
+            h2_xpath = "/html/body/div[1]/bruschetta-app/as-exception-handler/div[2]/div/div[2]/div/main/div[2]/site-management/as-exception-handler/sites/slidealog[4]/focus-trap/div[2]/material-drawer/div[2]/div[1]/h2"
+
+            # XPath alternativo caso o XPath completo não funcione
+            alt_xpath = "//h2[contains(@class, '_ngcontent')]"
+
+            # Tentar o XPath específico primeiro
+            if self._check_element_exists(By.XPATH, h2_xpath, timeout=5):
+                h2_element = self.driver.find_element(By.XPATH, h2_xpath)
+                domain_text = h2_element.text.strip()
+                logger.info(
+                    f"[OK] Texto do domínio capturado do elemento <h2>: {domain_text}")
+
+                # Garantir que o domínio tenha o protocolo https://
+                if domain_text and not domain_text.startswith(('http://', 'https://')):
+                    domain_text = 'https://' + domain_text
+
+                return domain_text
+
+            # Tentar o XPath alternativo
+            elif self._check_element_exists(By.XPATH, alt_xpath, timeout=3):
+                h2_elements = self.driver.find_elements(By.XPATH, alt_xpath)
+                for h2_element in h2_elements:
+                    domain_text = h2_element.text.strip()
+                    # Verificar se o texto parece um domínio (contém pelo menos um ponto)
+                    if domain_text and '.' in domain_text:
+                        logger.info(
+                            f"[OK] Texto do domínio capturado do elemento <h2> alternativo: {domain_text}")
+
+                        # Garantir que o domínio tenha o protocolo https://
+                        if not domain_text.startswith(('http://', 'https://')):
+                            domain_text = 'https://' + domain_text
+
+                        return domain_text
+
+            logger.warning(
+                "[AVISO] Não foi possível capturar o URL do site do elemento <h2>")
+            return ""
+
+        except Exception as e:
+            logger.error(
+                f"[ERRO] Erro ao capturar URL do site do elemento <h2>: {str(e)}")
+            return ""
