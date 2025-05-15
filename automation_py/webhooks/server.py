@@ -1,8 +1,4 @@
-from powerads_api.profiles import ProfileManager, get_profiles
-from credentials.credentials_manager import get_credential, load_credentials
-from automations.adsense_creator.core import AdSenseCreator
-from automations.gmail_creator.core import GmailCreator
-from automations.data_generator import generate_gmail_credentials
+
 import os
 import sys
 import time
@@ -33,6 +29,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Importações Locais
+from powerads_api.ads_power_manager import AdsPowerManager
+from powerads_api.browser_manager import BrowserManager, BrowserConfig
+from apis.sms_api import SMSAPI
+from powerads_api.profiles import ProfileManager, get_profiles
+from credentials.credentials_manager import get_credential, load_credentials
+from automations.adsense_creator.core import AdSenseCreator
+from automations.gmail_creator.core import GmailCreator
+from automations.data_generator import generate_gmail_credentials
+
 
 # Criar a aplicação FastAPI
 app = FastAPI(
@@ -266,7 +271,7 @@ def process_gmail_creation(job_id: str, user_id: str, data: dict):
         recovery_email = data.get('recovery_email') if data else None
 
         # Gerar credenciais para o Gmail
-        from automations.data_generator import generate_gmail_credentials
+
         credentials = generate_gmail_credentials()
         if not credentials:
             raise ValueError("Falha ao gerar credenciais para o Gmail")
@@ -289,10 +294,6 @@ def process_gmail_creation(job_id: str, user_id: str, data: dict):
             raise ValueError(f"Perfil {user_id} não encontrado")
 
         # Importar as classes necessárias
-        from automations.gmail_creator.core import GmailCreator
-        from apis.sms_api import SMSAPI
-        from powerads_api.browser_manager import BrowserManager, BrowserConfig
-        from powerads_api.ads_power_manager import AdsPowerManager
 
         # Obter credenciais
         base_url = get_credential("PA_BASE_URL")

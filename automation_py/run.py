@@ -6,6 +6,8 @@ import signal
 import platform
 import threading
 import logging
+import socket
+import requests
 
 # Configurar logging
 logging.basicConfig(
@@ -13,10 +15,35 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),  # Saída para o console
-        logging.FileHandler("sms_gateway.log")  # Arquivo de log
+        # Arquivo de log (sobrescreve a cada execução)
+        logging.FileHandler("server.log", mode='w')
     ]
 )
 logger = logging.getLogger(__name__)
+
+# Adicionar log de informações do sistema
+
+
+def log_system_info():
+    """Registra informações sobre o sistema operacional e ambiente."""
+    logger.info(
+        f"Sistema Operacional: {platform.system()} {platform.release()}")
+    logger.info(f"Python Version: {platform.python_version()}")
+    logger.info(f"Diretório atual: {os.getcwd()}")
+
+    # Verificar portas em uso
+    try:
+        if platform.system() == "Windows":
+            netstat = subprocess.check_output(
+                "netstat -ano | findstr :5001", shell=True).decode('utf-8')
+            logger.info(f"Portas em uso (5001): {netstat.strip()}")
+        else:
+            netstat = subprocess.check_output(
+                "lsof -i :5001", shell=True).decode('utf-8')
+            logger.info(f"Portas em uso (5001): {netstat.strip()}")
+    except subprocess.CalledProcessError:
+        logger.info("Porta 5001 não está em uso por outros processos")
+
 
 # Armazenar os processos para encerramento adequado
 processes = []
@@ -66,6 +93,9 @@ def main():
     print("[INICIO] INICIANDO SERVIÇOS API & UI [INICIO]")
     print("=" * 60)
 
+    # Registrar informações do sistema
+    log_system_info()
+
     # Configurar tratamento de sinal para encerramento limpo
     try:
         if platform.system() != "Windows":
@@ -74,10 +104,36 @@ def main():
     except (AttributeError, ValueError):
         pass  # Ignorar erros em sistemas que não suportam sinais
 
+    # Verificar se processos anteriores ainda estão rodando
+    try:
+        if platform.system() == "Windows":
+            # Verificar e matar processos existentes na porta 5001 (Windows)
+            try:
+                check_cmd = 'netstat -ano | findstr :5001'
+                result = subprocess.check_output(
+                    check_cmd, shell=True).decode().strip()
+                if result:
+                    logger.info(
+                        f"Processos existentes na porta 5001: {result}")
+                    for line in result.splitlines():
+                        if 'LISTENING' in line:
+                            pid = line.split()[-1]
+                            logger.info(
+                                f"Encerrando processo antigo PID: {pid}")
+                            os.system(f'taskkill /PID {pid} /F')
+            except subprocess.CalledProcessError:
+                pass  # Não há processos na porta
+    except Exception as e:
+        logger.warning(f"Erro ao verificar processos existentes: {str(e)}")
+
     # Iniciar o servidor FastAPI com uvicorn
     print(" Iniciando servidor FastAPI...")
     api_cmd = ["uvicorn", "webhooks.server:app",
-               "--host", "0.0.0.0", "--port", "5001", "--reload"]
+               "--host", "0.0.0.0", "--port", "8000",
+               "--timeout-keep-alive", "120",  # Aumentar timeout de keep-alive
+               "--workers", "4",  # Utilizar múltiplos workers para melhor desempenho
+               "--log-level", "info",
+               "--reload"]
 
     try:
         api_process = subprocess.Popen(
@@ -126,11 +182,29 @@ def main():
         print("\n[OK] Todos os serviços foram iniciados!")
         print("-" * 60)
         print("[CLIPBOARD] Instruções:")
-        print("  - API FastAPI disponível em: http://localhost:5001")
-        print("  - Documentação Swagger UI: http://localhost:5001/docs")
-        print("  - Documentação ReDoc: http://localhost:5001/redoc")
+        print("  - API FastAPI disponível em: http://localhost:8000")
+        print("  - Documentação Swagger UI: http://localhost:8000/docs")
+        print("  - Documentação ReDoc: http://localhost:8000/redoc")
         print("  - Os logs dos serviços são mostrados acima com prefixos")
         print("  - Pressione Ctrl+C para encerrar todos os serviços")
+
+        # Tenta obter o endereço IP público para facilitar configuração do túnel
+        try:
+            hostname = socket.gethostname()
+            local_ip = socket.gethostbyname(hostname)
+            print(f"  - IP Local da máquina: http://{local_ip}:8000")
+
+            # Tenta obter o IP público
+            try:
+                public_ip = requests.get(
+                    'https://api.ipify.org', timeout=5).text
+                print(
+                    f"  - IP Público (verifique se está acessível): http://{public_ip}:8000")
+            except:
+                pass
+        except:
+            pass
+
         print("-" * 60)
 
         try:
