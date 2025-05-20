@@ -119,7 +119,15 @@ class BrowserManager:
             bool: True se o browser está pronto para uso
         """
         try:
+            logger.info(f"[DEBUG] Verificando se o browser está pronto para o perfil {user_id}")
+            
+            # Verificar se o perfil existe antes de tentar iniciar o browser
+            if not self.ads_power_api.is_profile_valid(user_id):
+                logger.error(f"[ERRO] Perfil {user_id} não existe ou não está disponível no AdsPower")
+                return False
+                
             if not self.is_browser_running():
+                logger.info(f"[DEBUG] Browser não está em execução, iniciando para o perfil {user_id}")
                 success, browser_info = self.start_browser(user_id)
                 if not success:
                     logger.error("[ERRO] Falha ao iniciar o browser")
@@ -133,6 +141,7 @@ class BrowserManager:
                     logger.error("[ERRO] Informações do WebDriver incompletas")
                     return False
 
+                logger.info(f"[DEBUG] Conectando ao Selenium WebDriver: {selenium_ws}, path: {webdriver_path}")
                 self.driver = connect_selenium(selenium_ws, webdriver_path)
                 if not self.driver:
                     logger.error(
@@ -141,8 +150,9 @@ class BrowserManager:
 
                 logger.info("[OK] Browser iniciado e conectado com sucesso")
                 return True
-
-            return True
+            else:
+                logger.info(f"[DEBUG] Browser já está em execução para o perfil {user_id}")
+                return True
 
         except Exception as e:
             logger.error(
