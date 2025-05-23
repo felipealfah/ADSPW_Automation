@@ -109,6 +109,8 @@ class GmailCreationParams(BaseModel):
     headless: Optional[bool] = False
     max_wait_time: Optional[int] = 60
     recovery_email: str = Field(..., description="Email de recuperação obrigatório")
+    email: Optional[str] = None
+    password: Optional[str] = None
     webhook_callback: Optional[str] = None
 
 
@@ -268,12 +270,20 @@ def process_gmail_creation(job_id: str, user_id: str, data: dict):
         headless = data.get('headless', False) if data else False
         max_wait_time = data.get('max_wait_time', 60) if data else 60
         recovery_email = data.get('recovery_email') if data else None
+        requested_email = data.get('email') if data else None
+        requested_password = data.get('password') if data else None
 
         # Gerar credenciais para o Gmail
 
         credentials = generate_gmail_credentials()
         if not credentials:
             raise ValueError("Falha ao gerar credenciais para o Gmail")
+
+        # Override generated credentials if provided by request
+        if requested_email:
+            credentials['username'] = requested_email.split('@')[0] if '@' in requested_email else requested_email
+        if requested_password:
+            credentials['password'] = requested_password
 
         # Adicionar recovery_email às credenciais se fornecido
         if recovery_email:
