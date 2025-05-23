@@ -64,6 +64,16 @@ class WebsiteCodeInjector:
             logger.info(
                 "[INICIO] Iniciando captura do código de verificação...")
 
+            # Redirecionar para a página base do AdSense se não estivermos lá
+            initial_url = self.driver.current_url
+            if "adsense.google.com/adsense" not in initial_url:
+                logger.info("[INFO] URL atual não é do AdSense, navegando para https://adsense.google.com/adsense")
+                self.driver.get("https://adsense.google.com/adsense")
+                self._wait_for_page_load()
+                time.sleep(3)
+                initial_url = self.driver.current_url
+                logger.info(f"[INFO] URL após redirecionamento: {initial_url}")
+
             # Verificar se estamos na página de onboarding do AdSense
             current_url = self.driver.current_url
             logger.info(f"[INFO] URL atual: {current_url}")
@@ -270,6 +280,38 @@ class WebsiteCodeInjector:
             bool: True se o clique foi bem-sucedido
         """
         try:
+            # Se estivermos na página de onboarding, clicar no botão de início de captura
+            current_url = self.driver.current_url
+            if "/onboarding" in current_url:
+                logger.info("[INFO] Página de onboarding detectada, tentando clicar no botão de início de captura...")
+
+                # Primeiro, tentar o botão 'Conectar seu site' via aria-label
+                aria_xpath = "//button[@aria-label='Conectar seu site']"
+                if self._check_element_exists(By.XPATH, aria_xpath, timeout=10):
+                    button = self.driver.find_element(By.XPATH, aria_xpath)
+                    logger.info("[INFO] Botão 'Conectar seu site' encontrado via aria-label, tentando clicar...")
+                    return self._click_safely(button)
+
+                # Em seguida, tentar o botão 'Vamos lá' pelo texto da label
+                text_xpath = "//button[.//span[contains(text(),'Vamos lá')]]"
+                if self._check_element_exists(By.XPATH, text_xpath, timeout=10):
+                    button = self.driver.find_element(By.XPATH, text_xpath)
+                    logger.info("[INFO] Botão 'Vamos lá' encontrado pelo texto, tentando clicar...")
+                    return self._click_safely(button)
+
+                onboarding_selector = "//button//material-ripple[contains(@class,'mdc-button__ripple')]"
+                if self._check_element_exists(By.XPATH, onboarding_selector, timeout=10):
+                    ripple_el = self.driver.find_element(By.XPATH, onboarding_selector)
+                    button_el = ripple_el.find_element(By.XPATH, "./ancestor::button")
+                    if self._click_safely(button_el):
+                        logger.info("[OK] Botão de início de captura clicado com sucesso")
+                        return True
+                    else:
+                        logger.warning("[AVISO] Falha ao clicar no botão de início de captura")
+                else:
+                    logger.warning("[AVISO] Botão de início de captura não encontrado na tela de onboarding")
+                # Prosseguir com tentativas padrão se não encontrado
+            
             logger.info("[INFO] Tentando clicar no botão para próxima tela...")
 
             # XPath específico do botão fornecido pelo usuário
@@ -310,8 +352,19 @@ class WebsiteCodeInjector:
                     if button.is_displayed() and button.is_enabled():
                         return self._click_safely(button)
 
+            # Fallback final: tentar clicar em qualquer botão visível na página
+            buttons = self.driver.find_elements(By.TAG_NAME, "button")
+            for btn in buttons:
+                try:
+                    if btn.is_displayed() and btn.is_enabled():
+                        logger.info(f"[INFO] Tentando clicar em botão genérico: {btn.text}")
+                        if self._click_safely(btn):
+                            logger.info("[OK] Botão genérico clicado com sucesso")
+                            return True
+                except Exception:
+                    continue
             logger.warning(
-                "[AVISO] Não foi possível encontrar o botão para próxima tela")
+                "[AVISO] Não foi possível encontrar ou clicar em nenhum botão para próxima tela")
             return False
 
         except Exception as e:

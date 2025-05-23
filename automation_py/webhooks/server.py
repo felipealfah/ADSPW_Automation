@@ -1595,13 +1595,7 @@ def process_adsense_code_capture(job_id, user_id, data):
                 logger.error(
                     f"[ADSENSE] Falha ao capturar códigos para o job {job_id}")
 
-            # Fechar o navegador se close_browser for True (padrão)
-            close_browser = data.get('close_browser', True)
-            if close_browser:
-                close_browser_safely(adspower_manager, user_id, driver, job_id)
-            else:
-                logger.info(
-                    f"[ADSENSE] Navegador mantido aberto para operações adicionais (close_browser={close_browser})")
+            # Terminou captura de códigos sem fechar o navegador (close_browser_safely removido)
 
         except Exception as e:
             update_job_status(
@@ -1613,10 +1607,7 @@ def process_adsense_code_capture(job_id, user_id, data):
             logger.error(
                 f"[ERRO] Erro ao capturar códigos do AdSense: {str(e)}")
 
-            # Tentar fechar o navegador se close_browser for True (mesmo em caso de erro)
-            if close_browser and 'user_id' in locals() and 'adspower_manager' in locals():
-                close_browser_safely(adspower_manager, user_id, driver if 'driver' in locals(
-                ) else None, job_id, "após erro")
+            # Mantém o navegador aberto mesmo em caso de erro (fallback de fechamento removido)
 
     except Exception as e:
         logger.error(

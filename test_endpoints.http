@@ -46,18 +46,34 @@ Content-Type: application/json
 
 
 ### Get AdSense Job Status
-GET {{baseUrl}}/adsense-job-status/7d9ea772-9a17-481e-a775-4bd19d320d4e
+GET {{baseUrl}}/adsense-job-status/2e672eba-ba37-4049-a67f-38978b1c8100
+
+### Get AdSense Job Status
+GET https://rotan8n.online/adsense-job-status/2e672eba-ba37-4049-a67f-38978b1c8100
 
 ### Capture AdSense Codes
-POST {{baseUrl}}/adsense-code-capture/kyebo9b
+POST {{baseUrl}}/adsense-code-capture/{{userId}}
 Content-Type: application/json
 
 {
   "website_url": "https://sabedoriadigital.xyz"
 }
 
+
+### Capture AdSense Codes
+POST https://rotan8n.online/adsense-code-capture/kxy3rvy
+Content-Type: application/json
+
+{
+  "website_url": "https://sabedoriadigital.xyz"
+}
+
+
 ### Get AdSense Verification Codes
 GET {{baseUrl}}/adsense-verification-codes/https://sabedoriadigital.xyz
+
+### Get AdSense Verification Codes
+GET https://rotan8n.online/adsense-verification-codes/https://sabedoriadigital.xyz
 
 ### Verify AdSense Account
 POST {{baseUrl}}/adsense-verify-account/{{userId}}
@@ -66,6 +82,15 @@ Content-Type: application/json
 {
   // include necessary data if any
 }
+
+### Verify AdSense Account
+POST https://rotan8n.online/adsense-verify-account/kxy3rvy
+Content-Type: application/json
+
+{
+  // include necessary data if any
+}
+
 
 ### SMS Webhook
 POST {{baseUrl}}/sms-webhook
