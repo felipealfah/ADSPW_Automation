@@ -7,6 +7,10 @@ pushd "%~dp0\automation_py"
 
 echo Clearing caches and logs...
 if exist "credentials\adspower_cache.json" del /q "credentials\adspower_cache.json"
+REM Limpar arquivos de job e SMS pendentes
+if exist "sms_data\jobs\*.json" del /q "sms_data\jobs\*.json"
+if exist "sms_data\*.json" del /q "sms_data\*.json"
+REM Limpar logs de execução
 if exist "server.log" del /q "server.log"
 if exist "logs\*.log" del /q "logs\*.log"
 

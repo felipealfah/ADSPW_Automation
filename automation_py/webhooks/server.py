@@ -1236,15 +1236,21 @@ def process_adsense_creation(job_id, user_id, data):
                         "user_id") == user_id for profile in profiles)
 
                     if not profile_exists:
-                        logger.warning(
-                            f"Perfil {user_id} não encontrado na lista de perfis. Perfis disponíveis: {[p.get('user_id') for p in profiles]}")
-                        update_job_status(
-                            job_id=job_id,
-                            status="failed",
-                            message=f"Perfil {user_id} não encontrado",
-                            error_details=f"O perfil com ID {user_id} não foi encontrado na lista de perfis do AdsPower. Verifique se o perfil existe e está ativo."
-                        )
-                        return
+                        logger.warning(f"Perfil {user_id} não encontrado na listagem; tentando fallback com get_profile_info")
+                        # Fallback: verificar perfil através de AdsPowerManager.get_profile_info
+                        apm = AdsPowerManager(base_url, api_key)
+                        profile_info = apm.get_profile_info(user_id)
+                        if profile_info:
+                            logger.info(f"Perfil {user_id} encontrado via get_profile_info, prosseguindo.")
+                        else:
+                            logger.warning(f"Perfil {user_id} não encontrado mesmo via get_profile_info.")
+                            update_job_status(
+                                job_id=job_id,
+                                status="failed",
+                                message=f"Perfil {user_id} não encontrado",
+                                error_details=f"O perfil com ID {user_id} não foi encontrado via listagem ou get_profile_info."
+                            )
+                            return
                     else:
                         logger.info(
                             f"Perfil {user_id} encontrado. Continuando com a criação da conta.")
@@ -1426,15 +1432,21 @@ def process_adsense_code_capture(job_id, user_id, data):
                         "user_id") == user_id for profile in profiles)
 
                     if not profile_exists:
-                        logger.warning(
-                            f"Perfil {user_id} não encontrado na lista de perfis. Perfis disponíveis: {[p.get('user_id') for p in profiles]}")
-                        update_job_status(
-                            job_id=job_id,
-                            status="failed",
-                            message=f"Perfil {user_id} não encontrado",
-                            error_details=f"O perfil com ID {user_id} não foi encontrado na lista de perfis do AdsPower. Verifique se o perfil existe e está ativo."
-                        )
-                        return
+                        logger.warning(f"Perfil {user_id} não encontrado na listagem; tentando fallback com get_profile_info")
+                        # Fallback: verificar perfil através de AdsPowerManager.get_profile_info
+                        apm = AdsPowerManager(base_url, api_key)
+                        profile_info = apm.get_profile_info(user_id)
+                        if profile_info:
+                            logger.info(f"Perfil {user_id} encontrado via get_profile_info, prosseguindo.")
+                        else:
+                            logger.warning(f"Perfil {user_id} não encontrado mesmo via get_profile_info.")
+                            update_job_status(
+                                job_id=job_id,
+                                status="failed",
+                                message=f"Perfil {user_id} não encontrado",
+                                error_details=f"O perfil com ID {user_id} não foi encontrado via listagem ou get_profile_info."
+                            )
+                            return
                     else:
                         logger.info(
                             f"Perfil {user_id} encontrado. Continuando com a captura de códigos.")

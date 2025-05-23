@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Dict, List
 import logging
+import os
 
 
 @dataclass
@@ -109,3 +110,14 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+# Garantir que o diretório de logs exista e adicionar handler específico
+log_dir = os.path.dirname(LOG_FILE)
+if log_dir and not os.path.exists(log_dir):
+    os.makedirs(log_dir, exist_ok=True)
+from logging import Formatter, FileHandler
+# Cria e configura handler para o arquivo de log do AdSense
+file_handler = FileHandler(LOG_FILE, mode='a')
+file_handler.setLevel(log_config.LOG_LEVEL)
+file_handler.setFormatter(Formatter(LOG_FORMAT, datefmt="%Y-%m-%d %H:%M:%S"))
+logging.getLogger().addHandler(file_handler)

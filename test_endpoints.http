@@ -9,8 +9,14 @@ GET {{baseUrl}}/health
 ### List Profiles
 GET {{baseUrl}}/profiles?force_refresh=true
 
+### List Profiles
+GET https://rotan8n.online/profiles?force_refresh=true
+
 ### Get Profile Details
 GET {{baseUrl}}/profiles/{{userId}}
+
+### Get Profile Details
+GET https://rotan8n.online/profiles/kxy3rvy
 
 ### Create Gmail Account
 POST {{baseUrl}}/create-gmail/{{userId}}
@@ -27,7 +33,7 @@ Content-Type: application/json
 GET {{baseUrl}}/gmail-job-status/{{gmailJobId}}
 
 ### Create AdSense Account
-POST {{baseUrl}}/adsense-creator/kyebo9b
+POST https://rotan8n.online/adsense-creator/kxy3rvy
 Content-Type: application/json
 
 {
@@ -37,6 +43,7 @@ Content-Type: application/json
   "max_wait_time": 60,
   "close_browser_on_finish": false
 }
+
 
 ### Get AdSense Job Status
 GET {{baseUrl}}/adsense-job-status/7d9ea772-9a17-481e-a775-4bd19d320d4e
