@@ -32,8 +32,8 @@ class AdsPowerManager:
             local_cache_path: Caminho para o cache local
         """
         self.active_browsers = {}
-        self.cache = self._load_cache()
         self.local_cache_path = local_cache_path
+        self.cache = self._load_cache()
         self.base_url = None
         self.api_key = None
 
@@ -622,13 +622,32 @@ class AdsPowerManager:
 
     def is_profile_valid(self, user_id):
         """Verifica se o perfil ainda existe no AdsPower."""
+        # 1) Tentar via endpoint /user/info
         try:
-            response = requests.get(
-                f"{self.base_url}/api/v1/user/info", headers={"Authorization": f"Bearer {self.api_key}"}, params={"user_id": user_id})
+            url_info = f"{self.base_url}/api/v1/user/info"
+            headers = {"Authorization": f"Bearer {self.api_key}"}
+            response = requests.get(url_info, headers=headers, params={"user_id": user_id}, timeout=10)
             if response.status_code == 200:
                 data = response.json()
-                return data.get("code") == 0  # Retorna True se o perfil existe
-            return False
+                if data.get("code") == 0:
+                    return True
+            else:
+                logger.warning(f"[AVISO] is_profile_valid('/user/info') retornou {response.status_code} para {user_id}")
         except Exception as e:
-            logger.error(f"Erro ao verificar perfil {user_id}: {str(e)}")
-            return False
+            logger.warning(f"[AVISO] Falha ao chamar /user/info para {user_id}: {e}")
+
+        # 2) Fallback: verificar via listagem de perfis (usa cache interno ou API)
+        try:
+            profiles = self.get_all_profiles(force_refresh=False)
+            if any(p.get("user_id") == user_id for p in profiles):
+                return True
+        except Exception as e:
+            logger.warning(f"[AVISO] Falha ao chamar /user/list para {user_id}: {e}")
+
+        # 3) Último fallback: checar cache diretamente
+        if user_id in self.cache.get("profiles", {}):
+            logger.info(f"[INFO] is_profile_valid: perfil {user_id} validado via cache")
+            return True
+
+        # Se chegou aqui, perfil não encontrado
+        return False

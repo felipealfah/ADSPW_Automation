@@ -1,0 +1,75 @@
+@baseUrl = http://localhost:8000
+@userId = kyebo9b
+@gmailJobId = <paste_gmail_job_id_here>
+@adsenseJobId = <paste_adsense_job_id_here>
+
+### Health Check
+GET {{baseUrl}}/health
+
+### List Profiles
+GET {{baseUrl}}/profiles?force_refresh=true
+
+### Get Profile Details
+GET {{baseUrl}}/profiles/{{userId}}
+
+### Create Gmail Account
+POST {{baseUrl}}/create-gmail/{{userId}}
+Content-Type: application/json
+
+{
+  "headless": false,
+  "max_wait_time": 60,
+  "recovery_email": "recovery@example.com",
+  "webhook_callback": "http://example.com/callback"
+}
+
+### Get Gmail Job Status
+GET {{baseUrl}}/gmail-job-status/{{gmailJobId}}
+
+### Create AdSense Account
+POST {{baseUrl}}/adsense-creator/kyebo9b
+Content-Type: application/json
+
+{
+  "website_url": "https://sabedoriadigital.xyz",
+  "country": "BR",
+  "headless": false,
+  "max_wait_time": 60,
+  "close_browser_on_finish": false
+}
+
+### Get AdSense Job Status
+GET {{baseUrl}}/adsense-job-status/7d9ea772-9a17-481e-a775-4bd19d320d4e
+
+### Capture AdSense Codes
+POST {{baseUrl}}/adsense-code-capture/kyebo9b
+Content-Type: application/json
+
+{
+  "website_url": "https://sabedoriadigital.xyz"
+}
+
+### Get AdSense Verification Codes
+GET {{baseUrl}}/adsense-verification-codes/https://sabedoriadigital.xyz
+
+### Verify AdSense Account
+POST {{baseUrl}}/adsense-verify-account/{{userId}}
+Content-Type: application/json
+
+{
+  // include necessary data if any
+}
+
+### SMS Webhook
+POST {{baseUrl}}/sms-webhook
+Content-Type: application/json
+
+{
+  "id": "activation123",
+  "phone": "+1234567890",
+  "sms": "code message",
+  "status": "received"
+}
+
+### Get SMS Status
+GET {{baseUrl}}/sms-status/activation123 

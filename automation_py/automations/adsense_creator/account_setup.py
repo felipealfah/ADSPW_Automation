@@ -142,23 +142,9 @@ class AccountSetup:
             # Se estamos em WEBSITE_INFO, significa que a conta já estava validada e fomos redirecionados
             if self.state == SetupState.WEBSITE_INFO:
                 logger.info(
-                    "[INFO] Conta já validada, pulando para o preenchimento das informações do site")
+                    "[INFO] Conta já validada, pulando diretamente para o preenchimento das informações do site")
 
-                # Verificar se estamos na tela de senha após navegação inicial (pode acontecer mesmo com redirecionamento)
-                self._execute_with_retry(self._handle_password_screen)
-                logger.info(
-                    "[INFO] Verificação de tela de senha após navegação inicial concluída")
-
-                # Verificar se estamos na tela de verificação de telefone
-                if self._check_for_phone_verification():
-                    logger.info(
-                        "[INFO] Tela de verificação de telefone detectada após navegação inicial")
-                    if not self._handle_phone_verification():
-                        logger.error(
-                            "[ERRO] Falha na verificação de telefone após navegação inicial")
-                        return False
-
-                # Pular direto para o preenchimento das informações do site
+                # Pulando verificações de senha e telefone, indo direto para o preenchimento do site
                 if not self._execute_with_retry(self._fill_website_info):
                     return False
 
@@ -337,37 +323,26 @@ class AccountSetup:
                 if DEBUG_MODE:
                     self._save_screenshot("after_account_selection")
 
-                # Verificar e tratar recaptcha se necessário
-                self._check_and_handle_recaptcha()
+                # Se estamos na página de criação de conta, pular recaptcha; senão, tratar
+                current_url = self.driver.current_url
+                if "/adsense/signup/create" in current_url:
+                    logger.info("[INFO] Tela de criação do AdSense detectada, pulando recaptcha")
+                else:
+                    self._check_and_handle_recaptcha()
 
                 # Verificar se após selecionar a conta fomos redirecionados diretamente para a tela principal do AdSense
-                # (isso acontece quando a conta já foi validada previamente)
                 current_url = self.driver.current_url
                 logger.info(f"[INFO] URL após seleção de conta: {current_url}")
 
-                if "adsense.google.com/adsense" in current_url and "signup" not in current_url:
+                # Se estiver na página de criação (preenchimento de URL) ou já validada
+                if "/adsense/signup/create" in current_url or ("adsense.google.com/adsense" in current_url and "signup" not in current_url):
                     logger.info(
-                        "[INFO] Detectado redirecionamento direto para a tela principal do AdSense (conta já validada)")
-
-                    # Verificar se há elementos que confirmam que estamos na tela principal
-                    main_screen_indicators = [
-                        "//input[@aria-label='URL']",
-                        "//input[contains(@placeholder, 'website')]",
-                        "//input[contains(@id, 'website')]",
-                        "//div[contains(text(), 'site URL')]",
-                        "//div[contains(text(), 'URL do site')]"
-                    ]
-
-                    for indicator in main_screen_indicators:
-                        if self._check_for_element(By.XPATH, indicator, timeout=2):
-                            logger.info(
-                                f"[OK] Confirmada tela principal do AdSense através do elemento: {indicator}")
-
-                            # Indicar que devemos pular a tela de inscrição inicial
-                            self.state = SetupState.WEBSITE_INFO
-                            logger.info(
-                                "[INFO] Pulando tela de inscrição inicial, conta já está validada")
-                            return True
+                        "[INFO] Detectado redirecionamento direto para a tela de criação/prenchimento do AdSense (conta já está validada)")
+                    # Indicar que a conta já está validada e pular inscrição
+                    self.state = SetupState.WEBSITE_INFO
+                    logger.info(
+                        "[INFO] Pulando tela de inscrição inicial, conta já está validada")
+                    return True
 
             # Registrar URL atual para debug
             current_url = self.driver.current_url
@@ -446,8 +421,10 @@ class AccountSetup:
             # Esperar o formulário carregar
             time.sleep(5)
 
-            # Verificar e tratar recaptcha se necessário
-            self._check_and_handle_recaptcha()
+            # Verificar status de recaptcha somente se não estivermos na tela de criação (URL)
+            current_url = self.driver.current_url
+            if "/adsense/signup/create" not in current_url:
+                self._check_and_handle_recaptcha()
 
             logger.info("[INFO] Preenchendo o campo de URL do site...")
 
@@ -1428,10 +1405,24 @@ class AccountSetup:
                 logger.info(
                     f"[INFO] URL após aguardar resolução do recaptcha: {new_url}")
 
-                # Código para clicar no botão "Avançar" após a resolução do recaptcha
-                # (manter o resto da sua função original)
-                # ...
-
+                # Tentar clicar no botão "Avançar" ou "Submit" usando múltiplos seletores
+                recaptcha_button_xpaths = [
+                    login_locators.NEXT_BUTTON,
+                    "//input[@type='submit']",
+                    "//button[contains(text(), 'Next') or contains(text(), 'Próximo') or contains(text(), 'Avançar')]"
+                ]
+                button_clicked = False
+                for xpath in recaptcha_button_xpaths:
+                    if self._check_for_element(By.XPATH, xpath, timeout=5):
+                        btn = self.driver.find_element(By.XPATH, xpath)
+                        if self._click_safely(btn):
+                            logger.info(f"[OK] Botão Avançar clicado após recaptcha usando XPath: {xpath}")
+                            button_clicked = True
+                            time.sleep(3)
+                            self._wait_for_page_load()
+                            break
+                if not button_clicked:
+                    logger.warning("[AVISO] Botão Avançar/Submit não encontrado após recaptcha")
                 return True
 
             logger.info("[INFO] Nenhum recaptcha detectado na página")

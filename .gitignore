@@ -10,6 +10,11 @@ credentials/credentials.json
 dockerfile
 docker-compose.yml
 venv/
+.http
+.sh
+.log
+.logs
+jobs/
 
 
 *.log

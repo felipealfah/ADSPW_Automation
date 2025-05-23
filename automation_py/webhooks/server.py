@@ -1,4 +1,3 @@
-
 import os
 import sys
 import time
@@ -109,7 +108,7 @@ class PhoneParams(BaseModel):
 class GmailCreationParams(BaseModel):
     headless: Optional[bool] = False
     max_wait_time: Optional[int] = 60
-    recovery_email: Optional[str] = None
+    recovery_email: str = Field(..., description="Email de recuperação obrigatório")
     webhook_callback: Optional[str] = None
 
 
@@ -681,6 +680,16 @@ async def create_gmail_account(
 ):
     """Endpoint para criar uma conta Gmail."""
     try:
+        # Validar email de recuperação obrigatório
+        if not params.recovery_email:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "error": "Email de recuperação não fornecido",
+                    "error_code": "MISSING_RECOVERY_EMAIL"
+                }
+            )
         # Gerar job_id
         job_id = str(uuid.uuid4())
 
