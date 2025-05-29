@@ -75,66 +75,164 @@ class AccountSetup:
             birth_year=self.credentials["birth_year"]
         )
 
-    def start_setup(self) -> bool:
+    def start_setup(self):
         """Inicia o processo de configuração da conta."""
         try:
             logger.info("[INICIO] Iniciando configuração da conta Gmail...")
-
-            # Capturar screenshot do estado inicial da página
+            
+            # Salvar screenshot do estado inicial
             self._save_screenshot("estado_inicial_pagina")
+            logger.info(f"[DIAGNÓSTICO] URL inicial: {self.driver.current_url}")
 
-            # Registrar URL atual para diagnóstico
-            try:
-                current_url = self.driver.current_url
-                logger.info(f"[DIAGNÓSTICO] URL inicial: {current_url}")
-            except Exception as e:
-                logger.warning(f"[AVISO] Erro ao obter URL inicial: {str(e)}")
-
-            # Verificar se já estamos na tela de informações básicas (nome e sobrenome)
-            if self._check_if_already_on_name_screen():
-                logger.info(
-                    "[OK] Já estamos na tela de informações básicas. Pulando navegação inicial.")
-            else:
-                # Navegar para a página de signup apenas se não estivermos na tela correta
-                if not self._execute_with_retry(self._navigate_to_signup):
-                    return False
-
-                # Verificar e tratar a tela "Choose an account" se ela aparecer
-                if self._check_and_handle_choose_account_screen():
-                    logger.info(
-                        "[OK] Tela 'Choose an account' tratada com sucesso.")
-                else:
-                    logger.info(
-                        " Sem tela 'Choose an account', prosseguindo com fluxo normal.")
-
-            # Continuar com os passos normais
+            # Definir sequência de etapas
             setup_steps = [
-                (self._select_personal_account, SetupState.BASIC_INFO),
-                (self._fill_basic_info, SetupState.BASIC_INFO),
-                (self._handle_username_setup, SetupState.USERNAME_SETUP),
-                (self._setup_password, SetupState.PASSWORD_SETUP)
+                (self._fill_basic_info, "informações básicas"),
+                (self._fill_birth_and_gender, "data de nascimento e gênero"),
+                (self._handle_username_setup, "configuração de username"),
+                (self._setup_password, "configuração de senha")
             ]
 
-            for step_func, new_state in setup_steps:
-                self.state = new_state
-                self.account_info.state = new_state
-
-                if not self._execute_with_retry(step_func):
-                    self.state = SetupState.FAILED
-                    self.account_info.state = SetupState.FAILED
+            # Executar cada etapa em sequência
+            for step_func, step_name in setup_steps:
+                logger.info(f"[INICIO] Iniciando etapa: {step_name}")
+                try:
+                    if not step_func():
+                        logger.error(f"[ERRO] Falha na etapa: {step_name}")
+                        return False
+                    logger.info(f"[OK] Etapa concluída com sucesso: {step_name}")
+                    
+                    # Aguardar um momento entre as etapas
+                    time.sleep(2)
+                    
+                    # Verificar estado atual
+                    current_screen = self._check_current_screen()
+                    logger.info(f"[DIAGNÓSTICO] Tela atual após {step_name}: {current_screen}")
+                    
+                    # Salvar screenshot após cada etapa
+                    self._save_screenshot(f"apos_{step_name.replace(' ', '_')}")
+                except Exception as step_error:
+                    logger.error(f"[ERRO] Exceção na etapa {step_name}: {str(step_error)}")
                     return False
 
-            self.state = SetupState.COMPLETED
-            self.account_info.state = SetupState.COMPLETED
+            # Verificação final
+            final_screen = self._check_current_screen()
+            logger.info(f"[DIAGNÓSTICO] Tela final após todas as etapas: {final_screen}")
+            
+            if final_screen == "unknown_screen":
+                # Verificar se estamos em alguma das telas esperadas
+                expected_elements = [
+                    "//div[contains(text(), 'Verify your phone number')]",
+                    "//div[contains(text(), 'Verifique seu número de telefone')]",
+                    "//div[contains(text(), 'Add recovery email')]",
+                    "//div[contains(text(), 'Adicionar e-mail de recuperação')]"
+                ]
+                
+                for element in expected_elements:
+                    try:
+                        if self.wait.until(EC.presence_of_element_located((By.XPATH, element))):
+                            logger.info("[OK] Setup completo, encontrada tela esperada")
+                            return True
+                    except:
+                        continue
+                
+                logger.warning("[AVISO] Tela final não identificada, mas continuando...")
+            
+            logger.info("[OK] Setup completo com sucesso")
             return True
 
         except Exception as e:
-            logger.error(
-                f"[ERRO] Erro durante configuração da conta: {str(e)}")
-            self.state = SetupState.FAILED
-            self.account_info.state = SetupState.FAILED
-            raise AccountSetupError(
-                f"Falha na configuração da conta: {str(e)}")
+            logger.error(f"[ERRO] Falha ao executar setup: {str(e)}")
+            self._save_screenshot("erro_setup")
+            return False
+
+    def _fill_basic_info(self):
+        """
+        Preenche as informações básicas (nome e sobrenome).
+        """
+        try:
+            logger.info("[INICIO] Preenchendo informações básicas...")
+
+            # Preencher primeiro nome
+            first_name_field = self.wait.until(
+                EC.presence_of_element_located((By.NAME, "firstName"))
+            )
+            first_name_field.clear()
+            first_name_field.send_keys(self.credentials["first_name"])
+            logger.info(f"[OK] Nome preenchido: {self.credentials['first_name']}")
+
+            # Preencher sobrenome
+            last_name_field = self.wait.until(
+                EC.presence_of_element_located((By.NAME, "lastName"))
+            )
+            last_name_field.clear()
+            last_name_field.send_keys(self.credentials["last_name"])
+            logger.info(f"[OK] Sobrenome preenchido: {self.credentials['last_name']}")
+
+            # Tentar clicar no botão Next/Avançar/Próximo com diferentes abordagens
+            logger.info("[INICIO] Tentando clicar no botão Next/Avançar...")
+            
+            # Lista de possíveis XPaths para o botão
+            next_button_xpaths = [
+                "//span[text()='Next' or text()='Avançar' or text()='Próximo']",
+                "//button[contains(@class, 'VfPpkd-LgbsSe')]//span[text()='Next' or text()='Avançar' or text()='Próximo']",
+                "//*[@jsname='LgbsSe']//span[contains(@class, 'VfPpkd-vQzf8d')]",
+                "//button[@type='button']//span[text()='Next' or text()='Avançar' or text()='Próximo']"
+            ]
+
+            clicked = False
+            for xpath in next_button_xpaths:
+                try:
+                    # Primeiro, tentar clicar usando Selenium padrão
+                    next_button = self.wait.until(
+                        EC.element_to_be_clickable((By.XPATH, xpath))
+                    )
+                    try:
+                        next_button.click()
+                        clicked = True
+                        logger.info(f"[OK] Botão clicado com sucesso usando XPath: {xpath}")
+                        break
+                    except Exception as click_error:
+                        logger.info(f"[AVISO] Clique padrão falhou, tentando JavaScript para XPath: {xpath}")
+                        try:
+                            # Tentar via JavaScript
+                            self.driver.execute_script("arguments[0].click();", next_button)
+                            clicked = True
+                            logger.info("[OK] Botão clicado com sucesso via JavaScript")
+                            break
+                        except Exception as js_error:
+                            logger.warning(f"[AVISO] Clique via JavaScript também falhou: {str(js_error)}")
+                            continue
+                except Exception as e:
+                    logger.warning(f"[AVISO] Não foi possível encontrar/clicar no botão com XPath {xpath}: {str(e)}")
+                    continue
+
+            if not clicked:
+                # Última tentativa: tentar clicar diretamente no botão pelo XPath completo
+                try:
+                    full_xpath = "/html/body/div[1]/div[1]/div[2]/c-wiz/div/div[3]/div/div/div/div/button"
+                    next_button = self.wait.until(
+                        EC.presence_of_element_located((By.XPATH, full_xpath))
+                    )
+                    self.driver.execute_script("arguments[0].click();", next_button)
+                    clicked = True
+                    logger.info("[OK] Botão clicado com sucesso usando XPath completo via JavaScript")
+                except Exception as final_error:
+                    logger.error(f"[ERRO] Todas as tentativas de clicar no botão falharam: {str(final_error)}")
+                    return False
+
+            # Aguardar transição de página
+            time.sleep(2)
+            
+            if clicked:
+                logger.info("[OK] Informações básicas preenchidas e botão Next clicado com sucesso")
+                return True
+            else:
+                logger.error("[ERRO] Não foi possível clicar no botão Next após várias tentativas")
+                return False
+
+        except Exception as e:
+            logger.error(f"[ERRO] Falha ao preencher informações básicas: {str(e)}")
+            return False
 
     def _check_if_already_on_name_screen(self) -> bool:
         """Verifica se já estamos na tela que pede nome e sobrenome."""
@@ -142,25 +240,43 @@ class AccountSetup:
             # Capturar screenshot da tela inicial para diagnóstico
             self._save_screenshot("tela_inicial_verificacao")
 
+            # Registrar URL atual para diagnóstico
+            current_url = self.driver.current_url
+            logger.info(f"[DIAGNÓSTICO] URL atual ao verificar tela: {current_url}")
+
             # Verificar elementos específicos da tela de nome/sobrenome
             name_elements = [
                 (By.ID, account_locators.FIRST_NAME),
-                (By.ID, account_locators.LAST_NAME)
+                (By.ID, account_locators.LAST_NAME),
+                (By.XPATH, "//span[contains(text(), 'First name')]"),
+                (By.XPATH, "//span[contains(text(), 'Last name')]")
             ]
 
             for by, locator in name_elements:
                 try:
                     if WebDriverWait(self.driver, 3).until(EC.presence_of_element_located((by, locator))):
-                        logger.info("[OK] Detectada tela de nome e sobrenome.")
+                        logger.info(f"[OK] Elemento encontrado: {locator}")
                         # Capturar screenshot quando encontrar a tela de nome/sobrenome
                         self._save_screenshot("tela_nome_sobrenome_encontrada")
                         return True
                 except TimeoutException:
+                    logger.info(f"[BUSCA] Elemento não encontrado: {locator}")
                     continue
+
+            # Se não encontrou os elementos, verificar se há algum texto indicativo
+            page_source = self.driver.page_source.lower()
+            indicative_texts = ["create your google account", "basic information", "first name", "last name"]
+            
+            for text in indicative_texts:
+                if text in page_source:
+                    logger.info(f"[OK] Texto indicativo encontrado: {text}")
+                    return True
 
             # Capturar screenshot quando não encontrar a tela esperada
             self._save_screenshot("tela_nome_sobrenome_nao_encontrada")
+            logger.info("[INFO] Nenhum elemento ou texto indicativo da tela de nome/sobrenome encontrado")
             return False
+
         except Exception as e:
             logger.warning(f"[AVISO] Erro ao verificar tela inicial: {str(e)}")
             # Capturar screenshot em caso de erro
@@ -260,14 +376,33 @@ class AccountSetup:
                 return False
 
     def _navigate_to_signup(self):
-        """Navega para a página de cadastro."""
+        """Navega para a página de signup do Gmail."""
         try:
-            logger.info(" Acessando página de criação de conta...")
-            self.driver.get(account_config.GMAIL_SIGNUP_URL)
-            self._wait_for_page_load()
+            logger.info("[NAVEGAÇÃO] Verificando página atual...")
+            current_url = self.driver.current_url
+            logger.info(f"[DIAGNÓSTICO] URL atual: {current_url}")
+
+            # Se já estiver na página de signup, não precisa navegar
+            if "accounts.google.com/signup" in current_url:
+                logger.info("[OK] Já estamos na página de signup")
+                return True
+
+            # Se não estiver, navegar para a página de signup
+            logger.info("[NAVEGAÇÃO] Redirecionando para página de signup...")
+            self.driver.get("https://accounts.google.com/signup/v2/createaccount?service=mail&continue=https://mail.google.com/mail/&flowName=GlifWebSignIn&flowEntry=SignUp")
+            time.sleep(3)  # Aguardar carregamento inicial
+
+            # Verificar se chegamos à página correta
+            if not "accounts.google.com/signup" in self.driver.current_url:
+                logger.error("[ERRO] Falha ao navegar para página de signup")
+                return False
+
+            logger.info("[OK] Navegação para página de signup concluída")
+            return True
+
         except Exception as e:
-            raise NavigationError(
-                url=account_config.GMAIL_SIGNUP_URL, reason=str(e))
+            logger.error(f"[ERRO] Erro durante navegação: {str(e)}")
+            return False
 
     def _wait_for_page_load(self, timeout=10):
         """Aguarda o carregamento completo da página."""
@@ -308,125 +443,6 @@ class AccountSetup:
             raise ElementInteractionError(
                 "botão de conta pessoal", "clicar", str(e))
 
-    def _fill_basic_info(self):
-        """Preenche informações básicas do usuário."""
-        try:
-            logger.info(" Preenchendo informações básicas...")
-
-            first_name_input = self.wait.until(
-                EC.presence_of_element_located((By.ID, account_locators.FIRST_NAME)))
-            first_name_input.clear()
-            first_name_input.send_keys(self.account_info.first_name)
-
-            last_name_input = self.driver.find_element(
-                By.ID, account_locators.LAST_NAME)
-            last_name_input.clear()
-            last_name_input.send_keys(self.account_info.last_name)
-
-            self._click_next()
-            time.sleep(2)
-
-            logger.info(" Preenchendo data de nascimento e gênero...")
-
-            # Verificar se o mês é um número
-            month_value = self.account_info.birth_month
-            if isinstance(month_value, str) and not month_value.isdigit():
-                # Se for um nome de mês, converter para número
-                month_map = {"January": "1", "February": "2", "March": "3", "April": "4",
-                             "May": "5", "June": "6", "July": "7", "August": "8",
-                             "September": "9", "October": "10", "November": "11", "December": "12",
-                             "Janeiro": "1", "Fevereiro": "2", "Março": "3", "Abril": "4",
-                             "Maio": "5", "Junho": "6", "Julho": "7", "Agosto": "8",
-                             "Setembro": "9", "Outubro": "10", "Novembro": "11", "Dezembro": "12"}
-                month_value = month_map.get(month_value, "1")
-
-            # Primeiro preencher dia e ano sempre com JavaScript
-            try:
-                # Preencher dia com JavaScript
-                self.driver.execute_script("""
-                    document.getElementById('day').value = arguments[0];
-                    document.getElementById('day').dispatchEvent(new Event('input'));
-                    document.getElementById('day').dispatchEvent(new Event('change'));
-                """, str(self.account_info.birth_day))
-
-                # Preencher ano com JavaScript
-                self.driver.execute_script("""
-                    document.getElementById('year').value = arguments[0];
-                    document.getElementById('year').dispatchEvent(new Event('input'));
-                    document.getElementById('year').dispatchEvent(new Event('change'));
-                """, str(self.account_info.birth_year))
-
-                logger.info("[OK] Campos dia e ano preenchidos com JavaScript")
-            except Exception as js_error:
-                logger.error(
-                    f"[ERRO] Falha ao preencher dia e ano: {str(js_error)}")
-
-            # Para o mês
-            month_success = self._select_month_by_value(month_value)
-            if not month_success:
-                logger.warning(
-                    "[AVISO] Método avançado para mês falhou, tentando método alternativo")
-                try:
-                    # Tentar abrir o dropdown e selecionar usando Actions
-                    month_elem = self.driver.find_element(
-                        By.ID, account_locators.MONTH)
-                    from selenium.webdriver.common.action_chains import ActionChains
-                    actions = ActionChains(self.driver)
-                    actions.move_to_element(month_elem).click().perform()
-                    time.sleep(1)
-
-                    # Tentar encontrar opção por XPath
-                    month_option_xpath = f"//li[@data-value='{month_value}']"
-                    option = self.wait.until(EC.element_to_be_clickable(
-                        (By.XPATH, month_option_xpath)))
-                    option.click()
-                    logger.info("[OK] Mês selecionado com método alternativo")
-                except Exception as alt_month_error:
-                    logger.error(
-                        f"[ERRO] Também falhou método alternativo para mês: {str(alt_month_error)}")
-
-            # Para o gênero
-            gender_success = self._select_gender_neutral()
-            if not gender_success:
-                logger.warning(
-                    "[AVISO] Método avançado para gênero falhou, tentando método alternativo")
-                try:
-                    # Tentar encontrar o elemento de gênero por ID
-                    gender_elem = self.driver.find_element(
-                        By.ID, account_locators.GENDER)
-                    gender_elem.click()
-                    time.sleep(1)
-
-                    # Tentar encontrar a opção neutra pela última opção
-                    from selenium.webdriver.support.ui import Select
-                    try:
-                        select = Select(gender_elem)
-                        options = select.options
-                        if len(options) > 0:
-                            select.select_by_index(len(options) - 1)
-                            logger.info(
-                                "[OK] Gênero selecionado com Select (última opção)")
-                    except:
-                        # Se não funcionar como select, tentar como dropdown material
-                        neutral_options = self.driver.find_elements(By.XPATH,
-                                                                    "//li[@role='option'] | //option[contains(text(), 'Prefiro não dizer')] | //option[contains(text(), 'Rather not say')]")
-                        if neutral_options and len(neutral_options) > 0:
-                            neutral_options[-1].click()
-                            logger.info(
-                                "[OK] Gênero selecionado com clique na última opção")
-                except Exception as alt_gender_error:
-                    logger.error(
-                        f"[ERRO] Também falhou método alternativo para gênero: {str(alt_gender_error)}")
-
-            # Concluir com botão próximo
-            self._click_next()
-            time.sleep(2)
-            logger.info("[OK] Informações básicas preenchidas com sucesso!")
-
-        except Exception as e:
-            raise ElementInteractionError(
-                "campos básicos", "preencher", str(e))
-
     def _remove_readonly_if_exists(self, by, locator):
         """Remove o atributo 'readonly' de um campo, se ele estiver presente."""
         try:
@@ -437,126 +453,273 @@ class AccountSetup:
             pass
 
     def _handle_username_setup(self):
-        """Gerencia o processo de configuração do username."""
+        """
+        Configura o username da conta, incluindo tratamento de sugestões e retentativas.
+        """
+        logger.info("[INICIO] Iniciando configuração de username...")
+        
         try:
-            logger.info(" Iniciando configuração do username...")
+            # Verificar se estamos na tela correta
+            if not self._execute_with_retry(lambda: self._check_current_screen() == "username_screen"):
+                logger.error("[ERRO] Não foi possível identificar a tela de username")
+                self._save_screenshot("erro_tela_username")
+                raise NavigationError("Tela de username não encontrada")
 
-            # Capturar apenas um screenshot inicial
-            self._save_screenshot("inicio_username_setup")
+            # Tentar configurar o username
+            if not self._execute_with_retry(self._set_username):
+                logger.error("[ERRO] Falha ao configurar username")
+                self._save_screenshot("erro_configuracao_username")
+                raise UsernameError("Falha ao configurar username")
 
-            # Verificar se estamos na tela de senha (já avançamos)
-            current_screen = self._check_current_screen()
-            if current_screen == "password_screen":
-                logger.info(
-                    "[OK] Já estamos na tela de senha! Username já foi configurado.")
-                return True
+            # Verificar se há sugestões de username
+            if self._is_username_suggestion_screen():
+                logger.info("[INFO] Detectada tela de sugestões de username")
+                if not self._execute_with_retry(self._handle_username_suggestions):
+                    logger.error("[ERRO] Falha ao tratar sugestões de username")
+                    self._save_screenshot("erro_sugestoes_username")
+                    raise UsernameError("Falha ao tratar sugestões de username")
 
-            # Verificar e tratar tela de sugestões de username se necessário
-            if current_screen == "username_suggestion_screen" or self._is_username_suggestion_screen():
-                logger.info(
-                    "[OK] Tela de sugestões de username detectada, tratando...")
-                self._handle_username_suggestions()
-                time.sleep(2)
-
-                # Verificar novamente após tratar sugestões
-                if self._check_current_screen() == "password_screen":
-                    logger.info(
-                        "[OK] Avançamos para a senha após escolher sugestão.")
-                    return True
-
-            # Configurar username diretamente
-            if not self._set_username():
-                raise UsernameError(
-                    "[ERRO] Falha ao configurar um username válido.")
-
-            # Verificação final
-            if self._check_current_screen() == "password_screen":
-                logger.info("[OK] Username configurado com sucesso!")
-                return True
-
+            logger.info("[OK] Username configurado com sucesso")
             return True
 
-        except UsernameError as e:
-            logger.error(f"[ERRO] Erro ao configurar username: {e}")
-            raise e
+        except (NavigationError, UsernameError) as e:
+            logger.error(f"[ERRO] {str(e)}")
+            self._save_screenshot("erro_handle_username")
+            return False
         except Exception as e:
-            logger.error(
-                f"[AVISO] Erro inesperado ao configurar username: {e}")
-            raise UsernameError(
-                f"Erro inesperado ao configurar username: {str(e)}")
+            logger.error(f"[ERRO] Erro inesperado na configuração do username: {str(e)}")
+            self._save_screenshot("erro_inesperado_username")
+            return False
 
     def _set_username(self) -> bool:
-        """Configura o username e verifica disponibilidade. Se já existir, tenta outro automaticamente."""
-        username_taken_xpath = username_locators.USERNAME_TAKEN_ERROR
-        max_attempts = account_config.MAX_USERNAME_ATTEMPTS
-
-        # Apenas um log e screenshot inicial
-        logger.info(
-            f"[INFO] Configurando username: {self.account_info.username}")
-        self._save_screenshot("configurando_username")
-
-        for attempt in range(max_attempts):
-            try:
-                # Verificar se já avançamos para a tela de senha
-                if self._check_current_screen() == "password_screen":
-                    logger.info("[OK] Já avançamos para a tela de senha!")
-                    return True
-
-                # 1. Localizar e preencher o campo de username
-                username_field = self.wait.until(EC.presence_of_element_located(
-                    (By.XPATH, username_locators.USERNAME_FIELD)))
-                self.wait.until(EC.element_to_be_clickable(
-                    (By.XPATH, username_locators.USERNAME_FIELD)))
-
-                # Gerar novo username se não for a primeira tentativa
-                if attempt > 0:
-                    self.account_info.username = self._generate_new_username()
-                    logger.info(
-                        f"[AVISO] Tentando username alternativo: {self.account_info.username}")
-
-                # Preencher o campo
+        """
+        Tenta configurar o username com retentativas.
+        """
+        try:
+            logger.info(f"[INICIO] Tentando configurar username: {self.credentials['username']}")
+            max_attempts = 3
+            
+            for attempt in range(max_attempts):
+                current_username = self.credentials["username"] if attempt == 0 else self._generate_new_username()
+                
+                # Aguardar e preencher o campo de username
+                username_field = self.wait.until(
+                    EC.presence_of_element_located((By.NAME, "Username"))
+                )
                 username_field.clear()
-                username_field.send_keys(self.account_info.username)
-                logger.info(
-                    f"[OK] Tentativa {attempt+1}: Inserindo username '{self.account_info.username}'")
+                username_field.send_keys(current_username)
+                logger.info(f"[OK] Campo de username preenchido com: {current_username}")
 
-                # 2. Clicar no botão Next
-                self._click_next()
-                time.sleep(2)  # Aguardar verificação/navegação
+                # Tentar clicar no botão Next para verificar disponibilidade
+                logger.info("[INICIO] Tentando clicar no botão Next para verificar disponibilidade...")
+                
+                # Lista de possíveis XPaths para o botão
+                next_button_xpaths = [
+                    "//span[text()='Next' or text()='Avançar' or text()='Próximo']",
+                    "//button[contains(@class, 'VfPpkd-LgbsSe')]//span[text()='Next' or text()='Avançar' or text()='Próximo']",
+                    "//*[@jsname='LgbsSe']//span[contains(@class, 'VfPpkd-vQzf8d')]",
+                    "//button[@type='button']//span[text()='Next' or text()='Avançar' or text()='Próximo']",
+                    "//button[contains(@class, 'VfPpkd-LgbsSe')]",
+                    "//*[@jsname='LgbsSe']"
+                ]
 
-                # 3. Verificar se avançamos para a próxima tela
-                if self._check_current_screen() == "password_screen":
-                    logger.info("[OK] Avançamos para a tela de senha!")
-                    return True
+                clicked = False
+                for xpath in next_button_xpaths:
+                    try:
+                        next_button = self.wait.until(
+                            EC.element_to_be_clickable((By.XPATH, xpath))
+                        )
+                        try:
+                            next_button.click()
+                            clicked = True
+                            logger.info(f"[OK] Botão Next clicado com sucesso usando XPath: {xpath}")
+                            break
+                        except Exception as click_error:
+                            logger.info(f"[AVISO] Clique padrão falhou, tentando JavaScript para XPath: {xpath}")
+                            try:
+                                self.driver.execute_script("arguments[0].click();", next_button)
+                                clicked = True
+                                logger.info("[OK] Botão Next clicado com sucesso via JavaScript")
+                                break
+                            except Exception as js_error:
+                                logger.warning(f"[AVISO] Clique via JavaScript também falhou: {str(js_error)}")
+                                continue
+                    except Exception as e:
+                        logger.warning(f"[AVISO] Não foi possível encontrar/clicar no botão com XPath {xpath}: {str(e)}")
+                        continue
 
-                # 4. Verificar se há mensagem de erro de username já utilizado
+                if not clicked:
+                    # Última tentativa: tentar clicar diretamente no botão pelo XPath completo
+                    try:
+                        full_xpath = "/html/body/div[1]/div[1]/div[2]/div/div[2]/div/div/div[2]/div/div[2]/div/div[1]/div/div/button"
+                        next_button = self.wait.until(
+                            EC.presence_of_element_located((By.XPATH, full_xpath))
+                        )
+                        self.driver.execute_script("arguments[0].click();", next_button)
+                        clicked = True
+                        logger.info("[OK] Botão Next clicado com sucesso usando XPath completo via JavaScript")
+                    except Exception as final_error:
+                        logger.error(f"[ERRO] Todas as tentativas de clicar no botão Next falharam: {str(final_error)}")
+                        if attempt == max_attempts - 1:
+                            return False
+                        continue
+
+                # Aguardar um momento para verificar disponibilidade
+                time.sleep(2)
+
+                # Verificar se o username está disponível
                 if self._check_username_taken():
-                    logger.warning(
-                        "[AVISO] Username já está em uso. Tentando outro...")
-                    continue  # Tenta novamente com um novo username
+                    logger.warning(f"[AVISO] Username '{current_username}' já está em uso")
+                    if attempt == max_attempts - 1:
+                        logger.error("[ERRO] Todas as tentativas de username falharam")
+                        return False
+                    continue
+                
+                # Username está disponível, verificar se avançamos para a tela de senha
+                current_screen = self._check_current_screen()
+                if current_screen == "password_screen":
+                    logger.info(f"[OK] Username '{current_username}' configurado com sucesso")
+                    return True
                 else:
-                    # Tentar clicar em Next novamente
-                    logger.info("[AVISO] Tentando clicar em Next novamente...")
-                    self._click_next()
-                    time.sleep(2)
+                    # Se não avançamos, tentar clicar no botão Next novamente
+                    logger.info("[AVISO] Não avançamos para a tela de senha, tentando clicar no Next novamente...")
+                    if not clicked:
+                        logger.error("[ERRO] Não foi possível clicar no botão Next novamente")
+                        if attempt == max_attempts - 1:
+                            return False
+                        continue
 
-                    if self._check_current_screen() == "password_screen":
-                        logger.info(
-                            "[OK] Avançamos para senha após segundo clique!")
+            logger.error("[ERRO] Todas as tentativas de configurar username falharam")
+            return False
+
+        except Exception as e:
+            logger.error(f"[ERRO] Falha ao configurar username: {str(e)}")
+            return False
+
+    def _check_username_taken(self, timeout=3) -> bool:
+        """Verifica se o username já está em uso."""
+        try:
+            error_xpaths = [
+                username_locators.USERNAME_TAKEN_ERROR,
+                "//div[contains(text(), 'That username is taken')]",
+                "//div[contains(text(), 'Este nome de usuário já está em uso')]",
+                "//span[contains(text(), 'That username is taken')]",
+                "//span[contains(text(), 'Este nome de usuário já está em uso')]"
+            ]
+
+            for xpath in error_xpaths:
+                try:
+                    if WebDriverWait(self.driver, timeout).until(
+                        EC.presence_of_element_located((By.XPATH, xpath))
+                    ):
+                        logger.info("[AVISO] Mensagem de erro detectada: username já está em uso")
                         return True
+                except TimeoutException:
+                    continue
 
-            except Exception as e:
-                logger.warning(
-                    f"[AVISO] Erro na tentativa {attempt+1}: {str(e)}")
-                if attempt < max_attempts - 1:
-                    logger.info("[AVISO] Tentando novamente...")
-                else:
-                    logger.error("[ERRO] Todas as tentativas falharam")
-                    return False
+            page_source = self.driver.page_source.lower()
+            if "username is taken" in page_source or "nome de usuário já está em uso" in page_source:
+                logger.info("[AVISO] Mensagem de erro detectada no HTML da página")
+                return True
 
-        # Se chegou aqui, todas as tentativas falharam
-        logger.error("[ALERTA] Número máximo de tentativas atingido.")
-        return False
+            return False
+
+        except Exception as e:
+            logger.error(f"[ERRO] Erro ao verificar disponibilidade do username: {str(e)}")
+            return False
+
+    def _generate_new_username(self):
+        """Gera um novo username quando o atual não está disponível."""
+        try:
+            original_username = self.account_info.username
+            new_username = f"{original_username}{self.account_info.birth_day}"
+            logger.info(f"[OK] Gerando username alternativo: {new_username}")
+            return new_username
+
+        except Exception as e:
+            logger.error(f"[ERRO] Erro ao gerar username alternativo: {str(e)}")
+            try:
+                import string
+                import random
+                first = self.account_info.first_name.lower()
+                last = self.account_info.last_name.lower()
+                year = str(self.account_info.birth_year)
+                day = str(self.account_info.birth_day)
+                random_part = ''.join(random.choice(string.ascii_lowercase) for _ in range(5))
+                new_username = f"{first[:3]}{last[:3]}{random_part}{year[-2:]}{day}"
+                logger.info(f"[OK] Gerado username fallback: {new_username}")
+                return new_username
+
+            except Exception as fallback_error:
+                random_part = ''.join(random.choice(
+                    string.ascii_lowercase + string.digits) for _ in range(8))
+                random_username = f"user_{random_part}_{random.randint(1900, 2010)}"
+                logger.warning(f"[AVISO] Gerado username aleatório: {random_username}")
+                return random_username
+
+    def _check_current_screen(self):
+        """Detecta em qual tela estamos atualmente."""
+        try:
+            # Detectar tela de senha
+            password_elements = [
+                password_locators.PASSWORD_FIELD,
+                "//div[contains(text(), 'Create a password')]",
+                "//div[contains(text(), 'Criar uma senha')]"
+            ]
+            for element in password_elements:
+                try:
+                    if WebDriverWait(self.driver, 1).until(EC.presence_of_element_located((By.XPATH, element))):
+                        return "password_screen"
+                except:
+                    continue
+
+            # Detectar tela de username
+            username_elements = [
+                username_locators.USERNAME_FIELD,
+                "//div[contains(text(), 'Choose your Gmail address')]",
+                "//div[contains(text(), 'Escolha seu endereço do Gmail')]"
+            ]
+            for element in username_elements:
+                try:
+                    if WebDriverWait(self.driver, 1).until(EC.presence_of_element_located((By.XPATH, element))):
+                        return "username_screen"
+                except:
+                    continue
+
+            # Detectar tela de sugestões de username
+            suggestion_elements = [
+                username_locators.CREATE_OWN_USERNAME,
+                "//div[contains(text(), 'Create your own Gmail address')]",
+                "//div[contains(text(), 'Crie seu próprio endereço do Gmail')]"
+            ]
+            for element in suggestion_elements:
+                try:
+                    if WebDriverWait(self.driver, 1).until(EC.presence_of_element_located((By.XPATH, element))):
+                        return "username_suggestion_screen"
+                except:
+                    continue
+
+            return "unknown_screen"
+
+        except Exception as e:
+            logger.error(f"[ERRO] Erro ao verificar a tela atual: {e}")
+            return "error_screen"
+
+    def _save_screenshot(self, name):
+        """Salva um screenshot apenas se o modo debug estiver ativado."""
+        if not DEBUG_MODE:
+            return
+
+        try:
+            import os
+            screenshot_dir = "logs/screenshots"
+            os.makedirs(screenshot_dir, exist_ok=True)
+            timestamp = time.strftime("%Y%m%d-%H%M%S")
+            filename = f"{screenshot_dir}/{name}_{timestamp}.png"
+            self.driver.save_screenshot(filename)
+            logger.info(f"[DEBUG] Screenshot salvo: {filename}")
+        except Exception as e:
+            logger.error(f"[ERRO] Erro ao salvar screenshot: {str(e)}")
 
     def _is_username_suggestion_screen(self) -> bool:
         """Verifica se a tela de sugestões de username foi carregada."""
@@ -595,95 +758,245 @@ class AccountSetup:
 
                     logger.info(
                         "[OK] Opção 'Create your own Gmail address' selecionada.")
-                    # Pequeno delay para garantir que a nova tela carregue
+                    
+                    # Aguardar um momento para a interface atualizar
                     time.sleep(2)
+                    
+                    # Tentar clicar no botão Next após selecionar a opção
+                    logger.info("[INICIO] Tentando clicar no botão Next após selecionar opção...")
+                    
+                    # Lista de possíveis XPaths para o botão
+                    next_button_xpaths = [
+                        "//span[text()='Next' or text()='Avançar' or text()='Próximo']",
+                        "//button[contains(@class, 'VfPpkd-LgbsSe')]//span[text()='Next' or text()='Avançar' or text()='Próximo']",
+                        "//*[@jsname='LgbsSe']//span[contains(@class, 'VfPpkd-vQzf8d')]",
+                        "//button[@type='button']//span[text()='Next' or text()='Avançar' or text()='Próximo']",
+                        "//button[contains(@class, 'VfPpkd-LgbsSe')]",
+                        "//*[@jsname='LgbsSe']"
+                    ]
+
+                    clicked = False
+                    for xpath in next_button_xpaths:
+                        try:
+                            next_button = self.wait.until(
+                                EC.element_to_be_clickable((By.XPATH, xpath))
+                            )
+                            try:
+                                next_button.click()
+                                clicked = True
+                                logger.info(f"[OK] Botão Next clicado com sucesso usando XPath: {xpath}")
+                                break
+                            except Exception as click_error:
+                                logger.info(f"[AVISO] Clique padrão falhou, tentando JavaScript para XPath: {xpath}")
+                                try:
+                                    self.driver.execute_script("arguments[0].click();", next_button)
+                                    clicked = True
+                                    logger.info("[OK] Botão Next clicado com sucesso via JavaScript")
+                                    break
+                                except Exception as js_error:
+                                    logger.warning(f"[AVISO] Clique via JavaScript também falhou: {str(js_error)}")
+                                    continue
+                        except Exception as e:
+                            logger.warning(f"[AVISO] Não foi possível encontrar/clicar no botão com XPath {xpath}: {str(e)}")
+                            continue
+
+                    if not clicked:
+                        # Última tentativa: tentar clicar diretamente no botão pelo XPath completo
+                        try:
+                            full_xpath = "/html/body/div[1]/div[1]/div[2]/div/div[2]/div/div/div[2]/div/div[2]/div/div[1]/div/div/button"
+                            next_button = self.wait.until(
+                                EC.presence_of_element_located((By.XPATH, full_xpath))
+                            )
+                            self.driver.execute_script("arguments[0].click();", next_button)
+                            clicked = True
+                            logger.info("[OK] Botão Next clicado com sucesso usando XPath completo via JavaScript")
+                        except Exception as final_error:
+                            logger.error(f"[ERRO] Todas as tentativas de clicar no botão Next falharam: {str(final_error)}")
+                            return False
+
+                    # Aguardar e verificar se avançamos para a próxima tela
+                    time.sleep(2)
+                    current_screen = self._check_current_screen()
+                    if current_screen == "password_screen":
+                        logger.info("[OK] Avançamos para a tela de senha com sucesso")
+                        return True
+                    else:
+                        logger.error(f"[ERRO] Não avançamos para a tela de senha. Tela atual: {current_screen}")
+                        return False
                 else:
                     logger.error(
                         "[ERRO] O elemento 'Create your own Gmail address' não está visível ou interagível.")
+                    return False
 
             else:
                 logger.info(
                     "[OK] Tela de sugestões de username NÃO apareceu. Continuando normalmente...")
+                return True
+
         except Exception as e:
             logger.error(
                 f"[ERRO] Erro ao tentar selecionar a opção 'Create your own Gmail address': {e}")
-
-    def _save_screenshot(self, name):
-        """Salva um screenshot apenas se o modo debug estiver ativado."""
-        if not DEBUG_MODE:
-            return
-
-        try:
-            import os
-            screenshot_dir = "logs/screenshots"
-            os.makedirs(screenshot_dir, exist_ok=True)
-            timestamp = time.strftime("%Y%m%d-%H%M%S")
-            filename = f"{screenshot_dir}/{name}_{timestamp}.png"
-            self.driver.save_screenshot(filename)
-            logger.info(f"[DEBUG] Screenshot salvo: {filename}")
-        except Exception as e:
-            logger.error(f"[ERRO] Erro ao salvar screenshot: {str(e)}")
-
-    def _check_username_taken(self, timeout=3) -> bool:
-        """Verifica se o username já está em uso pela presença da mensagem de erro."""
-        try:
-            # Verificar mensagens de erro de username ocupado
-            error_xpaths = [
-                username_locators.USERNAME_TAKEN_ERROR,
-                "//div[contains(text(), 'That username is taken')]",
-                "//div[contains(text(), 'Este nome de usuário já está em uso')]",
-                "//span[contains(text(), 'That username is taken')]",
-                "//span[contains(text(), 'Este nome de usuário já está em uso')]"
-            ]
-
-            for xpath in error_xpaths:
-                try:
-                    if WebDriverWait(self.driver, timeout).until(
-                        EC.presence_of_element_located((By.XPATH, xpath))
-                    ):
-                        logger.info(
-                            "[AVISO] Mensagem de erro detectada: username já está em uso")
-                        return True  # Username está em uso
-                except TimeoutException:
-                    continue
-
-            # Verificar o HTML da página (método adicional)
-            page_source = self.driver.page_source.lower()
-            if "username is taken" in page_source or "nome de usuário já está em uso" in page_source:
-                logger.info(
-                    "[AVISO] Mensagem de erro detectada no HTML da página")
-                return True
-
-            return False  # Assumimos que não há erro de username ocupado
-
-        except Exception as e:
-            logger.error(
-                f"[ERRO] Erro ao verificar disponibilidade do username: {str(e)}")
-            return False  # Em caso de erro, assumimos que podemos continuar
+            return False
 
     def _setup_password(self):
-        """Configura a senha da conta."""
+        """
+        Configura a senha da conta com sistema de retentativas.
+        """
+        logger.info("[INICIO] Iniciando configuração de senha...")
+        
         try:
-            logger.info(" Configurando senha...")
+            # Verificar se estamos na tela correta
+            if not self._execute_with_retry(lambda: self._check_current_screen() == "password_screen"):
+                logger.error("[ERRO] Não foi possível identificar a tela de senha")
+                self._save_screenshot("erro_tela_senha")
+                raise NavigationError("Tela de senha não encontrada")
 
-            self._fill_input_safely(
-                By.XPATH,
-                password_locators.PASSWORD_FIELD,
-                self.account_info.password
-            )
+            # Tentar configurar a senha
+            if not self._execute_with_retry(self._set_password):
+                logger.error("[ERRO] Falha ao configurar senha")
+                self._save_screenshot("erro_configuracao_senha")
+                raise AccountSetupError("Falha ao configurar senha")
 
-            self._fill_input_safely(
-                By.XPATH,
-                password_locators.CONFIRM_PASSWORD,
-                self.account_info.password
-            )
-
-            self._click_next()
             logger.info("[OK] Senha configurada com sucesso")
+            return True
+
+        except (NavigationError, AccountSetupError) as e:
+            logger.error(f"[ERRO] {str(e)}")
+            self._save_screenshot("erro_setup_senha")
+            return False
+        except Exception as e:
+            logger.error(f"[ERRO] Erro inesperado na configuração da senha: {str(e)}")
+            self._save_screenshot("erro_inesperado_senha")
+            return False
+
+    def _set_password(self) -> bool:
+        """
+        Tenta configurar a senha com retentativas.
+        """
+        try:
+            logger.info("[INICIO] Configurando senha...")
+            
+            # Seletores para os campos de senha
+            password_selectors = [
+                (By.NAME, "Passwd"),
+                (By.XPATH, "//input[@name='Passwd']"),
+                (By.XPATH, "/html/body/div[1]/div[1]/div[2]/c-wiz/div/div[2]/div/div/div/form/span/section/div/div/div/div[1]/div/div/div[1]/div/div[1]/div/div[1]/input")
+            ]
+            
+            # Seletores para o campo de confirmação de senha
+            confirm_password_selectors = [
+                (By.NAME, "PasswdAgain"),
+                (By.XPATH, "//input[@name='PasswdAgain']"),
+                (By.XPATH, "/html/body/div[1]/div[1]/div[2]/c-wiz/div/div[2]/div/div/div/form/span/section/div/div/div/div[1]/div/div/div[2]/div/div[1]/div/div[1]/input")
+            ]
+
+            # Tentar preencher o campo de senha
+            password_field = None
+            for by, selector in password_selectors:
+                try:
+                    password_field = self.wait.until(
+                        EC.presence_of_element_located((by, selector))
+                    )
+                    if password_field.is_displayed() and password_field.is_enabled():
+                        break
+                except:
+                    continue
+
+            if not password_field:
+                logger.error("[ERRO] Campo de senha não encontrado")
+                return False
+
+            # Preencher senha
+            password_field.clear()
+            password_field.send_keys(self.credentials["password"])
+            logger.info("[OK] Senha preenchida")
+
+            # Tentar preencher o campo de confirmação de senha
+            confirm_field = None
+            for by, selector in confirm_password_selectors:
+                try:
+                    confirm_field = self.wait.until(
+                        EC.presence_of_element_located((by, selector))
+                    )
+                    if confirm_field.is_displayed() and confirm_field.is_enabled():
+                        break
+                except:
+                    continue
+
+            if not confirm_field:
+                logger.error("[ERRO] Campo de confirmação de senha não encontrado")
+                return False
+
+            # Preencher confirmação de senha
+            confirm_field.clear()
+            confirm_field.send_keys(self.credentials["password"])
+            logger.info("[OK] Confirmação de senha preenchida")
+
+            # Tentar clicar no botão Next/Avançar
+            logger.info("[INICIO] Tentando clicar no botão Next após preencher senha...")
+            
+            # Lista de possíveis XPaths para o botão
+            next_button_xpaths = [
+                "//span[text()='Next' or text()='Avançar' or text()='Próximo']",
+                "//button[contains(@class, 'VfPpkd-LgbsSe')]//span[text()='Next' or text()='Avançar' or text()='Próximo']",
+                "//*[@jsname='LgbsSe']//span[contains(@class, 'VfPpkd-vQzf8d')]",
+                "//button[@type='button']//span[text()='Next' or text()='Avançar' or text()='Próximo']",
+                "//button[contains(@class, 'VfPpkd-LgbsSe')]",
+                "//*[@jsname='LgbsSe']"
+            ]
+
+            clicked = False
+            for xpath in next_button_xpaths:
+                try:
+                    next_button = self.wait.until(
+                        EC.element_to_be_clickable((By.XPATH, xpath))
+                    )
+                    try:
+                        next_button.click()
+                        clicked = True
+                        logger.info(f"[OK] Botão Next clicado com sucesso usando XPath: {xpath}")
+                        break
+                    except Exception as click_error:
+                        logger.info(f"[AVISO] Clique padrão falhou, tentando JavaScript para XPath: {xpath}")
+                        try:
+                            self.driver.execute_script("arguments[0].click();", next_button)
+                            clicked = True
+                            logger.info("[OK] Botão Next clicado com sucesso via JavaScript")
+                            break
+                        except Exception as js_error:
+                            logger.warning(f"[AVISO] Clique via JavaScript também falhou: {str(js_error)}")
+                            continue
+                except Exception as e:
+                    logger.warning(f"[AVISO] Não foi possível encontrar/clicar no botão com XPath {xpath}: {str(e)}")
+                    continue
+
+            if not clicked:
+                # Última tentativa: tentar clicar diretamente no botão pelo XPath completo
+                try:
+                    full_xpath = "/html/body/div[1]/div[1]/div[2]/div/div[2]/div/div/div[2]/div/div[2]/div/div[1]/div/div/button"
+                    next_button = self.wait.until(
+                        EC.presence_of_element_located((By.XPATH, full_xpath))
+                    )
+                    self.driver.execute_script("arguments[0].click();", next_button)
+                    clicked = True
+                    logger.info("[OK] Botão Next clicado com sucesso usando XPath completo via JavaScript")
+                except Exception as final_error:
+                    logger.error(f"[ERRO] Todas as tentativas de clicar no botão Next falharam: {str(final_error)}")
+                    return False
+
+            # Verificar se avançamos para a próxima tela
+            time.sleep(2)
+            current_screen = self._check_current_screen()
+            if current_screen in ["phone_verification_screen", "recovery_email_screen"]:
+                logger.info("[OK] Avançamos para a próxima etapa após configuração de senha")
+                return True
+            
+            logger.error(f"[ERRO] Tela inesperada após configuração de senha: {current_screen}")
+            return False
 
         except Exception as e:
-            raise ElementInteractionError(
-                "campos de senha", "preencher", str(e))
+            logger.error(f"[ERRO] Falha ao configurar senha: {str(e)}")
+            return False
 
     def _click_next(self):
         """Utilitário para clicar no botão Next."""
@@ -696,94 +1009,34 @@ class AccountSetup:
     def _click_element_safely(self, by, locator, element_name, timeout=None):
         """Clica em um elemento com verificações de segurança."""
         try:
-            element = self.wait.until(
-                EC.element_to_be_clickable((by, locator))
-            )
+            element = self.wait.until(EC.element_to_be_clickable((by, locator)))
             try:
                 element.click()
             except Exception:
-                # Adicionar scroll para garantir visibilidade
-                self.driver.execute_script(
-                    "arguments[0].scrollIntoView({block: 'center'});", element)
+                self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", element)
                 time.sleep(1)
 
-                # Tentar JavaScript como fallback
                 try:
-                    self.driver.execute_script(
-                        "arguments[0].click();", element)
-                    logger.info(
-                        f"[OK] Clicou em {element_name} via JavaScript")
+                    self.driver.execute_script("arguments[0].click();", element)
+                    logger.info(f"[OK] Clicou em {element_name} via JavaScript")
                 except Exception as js_error:
-                    logger.error(
-                        f"[ERRO] Falha ao clicar via JavaScript: {str(js_error)}")
+                    logger.error(f"[ERRO] Falha ao clicar via JavaScript: {str(js_error)}")
 
-                    # Última tentativa usando Actions
                     from selenium.webdriver.common.action_chains import ActionChains
                     actions = ActionChains(self.driver)
                     actions.move_to_element(element).click().perform()
-                    logger.info(
-                        f"[OK] Clicou em {element_name} via ActionChains")
+                    logger.info(f"[OK] Clicou em {element_name} via ActionChains")
         except Exception as e:
             raise ElementInteractionError(element_name, "clicar", str(e))
 
     def _fill_input_safely(self, by, locator, value):
         """Preenche um campo de input com verificações de segurança."""
         try:
-            element = self.wait.until(
-                EC.presence_of_element_located((by, locator))
-            )
+            element = self.wait.until(EC.presence_of_element_located((by, locator)))
             element.clear()
             element.send_keys(value)
         except Exception as e:
-            raise ElementInteractionError(
-                f"campo {locator}", "preencher", str(e))
-
-    def _generate_new_username(self):
-        """Gera um novo username quando o atual não está disponível."""
-        # Adicionar o dia de nascimento ao username atual
-        try:
-            original_username = self.account_info.username
-
-            # Adicionar o dia de nascimento ao final
-            new_username = f"{original_username}{self.account_info.birth_day}"
-
-            logger.info(f"[OK] Gerando username alternativo: {new_username}")
-            return new_username
-
-        except Exception as e:
-            # Fallback em caso de erro
-            logger.error(
-                f"[ERRO] Erro ao gerar username alternativo: {str(e)}")
-
-            # Usar dados da conta atual para reconstruir o username
-            try:
-                import string
-                import random
-                import calendar
-
-                first = self.account_info.first_name.lower()
-                last = self.account_info.last_name.lower()
-                year = str(self.account_info.birth_year)
-                day = str(self.account_info.birth_day)
-
-                # Username com componentes aleatórios para aumentar chance de ser único
-                random_part = ''.join(random.choice(
-                    string.ascii_lowercase) for _ in range(5))
-                new_username = f"{first[:3]}{last[:3]}{random_part}{year[-2:]}{day}"
-
-                logger.info(f"[OK] Gerado username fallback: {new_username}")
-                return new_username
-
-            except Exception as fallback_error:
-                # Último recurso - gerar um username completamente aleatório
-                import random
-                import string
-                random_part = ''.join(random.choice(
-                    string.ascii_lowercase + string.digits) for _ in range(8))
-                random_username = f"user_{random_part}_{random.randint(1900, 2010)}"
-                logger.warning(
-                    f"[AVISO] Gerado username aleatório: {random_username}")
-                return random_username
+            raise ElementInteractionError(f"campo {locator}", "preencher", str(e))
 
     def _select_month_by_value(self, month_value):
         """Seleciona um mês pelo valor numérico usando JavaScript robusto."""
@@ -936,61 +1189,122 @@ class AccountSetup:
                 f"[ERRO] Erro na seleção de gênero avançada: {str(e)}")
             return False
 
-    def _check_current_screen(self):
-        """Detecta em qual tela estamos atualmente."""
+    def _fill_birth_and_gender(self):
+        """
+        Preenche as informações de data de nascimento e gênero.
+        """
         try:
-            # Detectar tela de senha
-            password_elements = [
-                password_locators.PASSWORD_FIELD,
-                "//div[contains(text(), 'Create a password')]",
-                "//div[contains(text(), 'Criar uma senha')]"
+            logger.info("[INICIO] Preenchendo data de nascimento e gênero...")
+
+            # Aguardar elementos da página carregarem
+            try:
+                # Verificar se os campos de data estão presentes
+                day_field = self.wait.until(
+                    EC.presence_of_element_located((By.NAME, "day"))
+                )
+                month_field = self.wait.until(
+                    EC.presence_of_element_located((By.ID, "month"))
+                )
+                year_field = self.wait.until(
+                    EC.presence_of_element_located((By.NAME, "year"))
+                )
+                
+                logger.info("[OK] Campos de data encontrados")
+            except Exception as e:
+                logger.error(f"[ERRO] Campos de data não encontrados: {str(e)}")
+                return False
+
+            # Preencher dia
+            try:
+                day_field.clear()
+                day_field.send_keys(str(self.credentials["birth_day"]))
+                logger.info(f"[OK] Dia preenchido: {self.credentials['birth_day']}")
+            except Exception as e:
+                logger.error(f"[ERRO] Falha ao preencher dia: {str(e)}")
+                return False
+
+            # Preencher mês (usando o método existente)
+            try:
+                month_value = self.credentials["birth_month"]
+                if isinstance(month_value, str) and not month_value.isdigit():
+                    month_map = {
+                        "January": "1", "February": "2", "March": "3", "April": "4",
+                        "May": "5", "June": "6", "July": "7", "August": "8",
+                        "September": "9", "October": "10", "November": "11", "December": "12"
+                    }
+                    month_value = month_map.get(month_value, "1")
+                
+                if not self._select_month_by_value(month_value):
+                    logger.error("[ERRO] Falha ao selecionar mês")
+                    return False
+                
+                logger.info(f"[OK] Mês selecionado: {month_value}")
+            except Exception as e:
+                logger.error(f"[ERRO] Falha ao selecionar mês: {str(e)}")
+                return False
+
+            # Preencher ano
+            try:
+                year_field.clear()
+                year_field.send_keys(str(self.credentials["birth_year"]))
+                logger.info(f"[OK] Ano preenchido: {self.credentials['birth_year']}")
+            except Exception as e:
+                logger.error(f"[ERRO] Falha ao preencher ano: {str(e)}")
+                return False
+
+            # Selecionar gênero (usando o método existente)
+            try:
+                if not self._select_gender_neutral():
+                    logger.error("[ERRO] Falha ao selecionar gênero")
+                    return False
+                logger.info("[OK] Gênero selecionado com sucesso")
+            except Exception as e:
+                logger.error(f"[ERRO] Falha ao selecionar gênero: {str(e)}")
+                return False
+
+            # Clicar no botão Next
+            logger.info("[INICIO] Tentando clicar no botão Next após data de nascimento...")
+            next_button_xpaths = [
+                "//span[text()='Next' or text()='Avançar' or text()='Próximo']",
+                "//button[contains(@class, 'VfPpkd-LgbsSe')]//span[text()='Next' or text()='Avançar' or text()='Próximo']",
+                "//*[@jsname='LgbsSe']//span[contains(@class, 'VfPpkd-vQzf8d')]",
+                "//button[@type='button']//span[text()='Next' or text()='Avançar' or text()='Próximo']"
             ]
-            for element in password_elements:
+
+            clicked = False
+            for xpath in next_button_xpaths:
                 try:
-                    if WebDriverWait(self.driver, 1).until(EC.presence_of_element_located((By.XPATH, element))):
-                        return "password_screen"
-                except:
+                    next_button = self.wait.until(
+                        EC.element_to_be_clickable((By.XPATH, xpath))
+                    )
+                    try:
+                        next_button.click()
+                        clicked = True
+                        logger.info(f"[OK] Botão Next clicado com sucesso após data de nascimento usando XPath: {xpath}")
+                        break
+                    except Exception as click_error:
+                        logger.info(f"[AVISO] Clique padrão falhou, tentando JavaScript")
+                        try:
+                            self.driver.execute_script("arguments[0].click();", next_button)
+                            clicked = True
+                            logger.info("[OK] Botão Next clicado com sucesso via JavaScript")
+                            break
+                        except Exception as js_error:
+                            logger.warning(f"[AVISO] Clique via JavaScript também falhou: {str(js_error)}")
+                            continue
+                except Exception as e:
+                    logger.warning(f"[AVISO] Não foi possível encontrar/clicar no botão com XPath {xpath}: {str(e)}")
                     continue
 
-            # Detectar tela de username
-            username_elements = [
-                username_locators.USERNAME_FIELD,
-                "//div[contains(text(), 'Choose your Gmail address')]",
-                "//div[contains(text(), 'Escolha seu endereço do Gmail')]"
-            ]
-            for element in username_elements:
-                try:
-                    if WebDriverWait(self.driver, 1).until(EC.presence_of_element_located((By.XPATH, element))):
-                        return "username_screen"
-                except:
-                    continue
+            if not clicked:
+                logger.error("[ERRO] Não foi possível clicar no botão Next após data de nascimento")
+                return False
 
-            # Detectar tela de sugestões de username
-            suggestion_elements = [
-                username_locators.CREATE_OWN_USERNAME,
-                "//div[contains(text(), 'Create your own Gmail address')]",
-                "//div[contains(text(), 'Crie seu próprio endereço do Gmail')]"
-            ]
-            for element in suggestion_elements:
-                try:
-                    if WebDriverWait(self.driver, 1).until(EC.presence_of_element_located((By.XPATH, element))):
-                        return "username_suggestion_screen"
-                except:
-                    continue
-
-            # Não conseguimos identificar a tela atual
-            return "unknown_screen"
+            # Aguardar transição de página
+            time.sleep(2)
+            logger.info("[OK] Data de nascimento e gênero preenchidos com sucesso")
+            return True
 
         except Exception as e:
-            logger.error(f"[ERRO] Erro ao verificar a tela atual: {e}")
-            return "error_screen"
-
-    def _wait_for_element(self, by, locator, timeout=5, condition=EC.presence_of_element_located):
-        """Espera mais eficiente por um elemento, retorna o elemento ou None."""
-        try:
-            element = WebDriverWait(self.driver, timeout).until(
-                condition((by, locator))
-            )
-            return element
-        except TimeoutException:
-            return None
+            logger.error(f"[ERRO] Falha ao preencher data de nascimento e gênero: {str(e)}")
+            return False

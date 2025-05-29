@@ -190,7 +190,7 @@ def get_profiles(base_url, headers, only_in_groups=True):
                     logging.info("Perfis fora de grupos encontrados:")
                     for profile in excluded_profiles:
                         logging.info(f"Nome: {profile.get('name')}, ID: {profile.get('user_id')}, "
-                                     f"Group ID: {profile.get('group_id')}, Group Name: {profile.get('group_name')}")
+                                   f"Group ID: {profile.get('group_id')}, Group Name: {profile.get('group_name')}")
 
     except requests.exceptions.RequestException as e:
         logging.error(f"[ERRO] Erro ao buscar perfis: {e}")
@@ -283,6 +283,87 @@ def update_profile(base_url, headers, user_id, update_data):
     return make_request("POST", url, headers, update_data)
 
 
+def create_profile_v2(base_url, headers, config):
+    """
+    Cria um novo perfil usando a API v2 do AdsPower.
+
+    Args:
+        base_url (str): URL base da API do AdsPower
+        headers (dict): Headers para autenticação
+        config (dict): Configuração do perfil contendo:
+            - name (str, opcional): Nome do perfil
+            - group_id (str): ID do grupo
+            - user_proxy_config (dict, opcional): Configuração de proxy
+            - fingerprint_config (dict): Configuração de fingerprint
+            - platform (str, opcional): Plataforma (ex: facebook.com)
+            - username (str, opcional): Username da plataforma
+            - password (str, opcional): Senha da plataforma
+            - remark (str, opcional): Observações sobre o perfil
+
+    Returns:
+        dict: Resposta da API contendo profile_id e profile_no se sucesso
+    """
+    try:
+        url = f"{base_url}/api/v2/browser-profile/create"
+        
+        # Configuração padrão de fingerprint se não fornecida
+        if "fingerprint_config" not in config:
+            config["fingerprint_config"] = {
+                "os": "Windows",
+                "browser": "chrome",
+                "version": "117",
+                "webrtc": "disabled",
+                "flash": "block",
+                "timezone": {
+                    "timezone": "UTC-3"
+                },
+                "language": ["pt-BR", "pt"],
+                "fonts": ["all"],
+                "hardware_concurrency": 4,
+                "resolution": "1920x1080",
+                "audio_context": True
+            }
+
+        # Configuração padrão de proxy se não fornecida
+        if "user_proxy_config" not in config and "proxyid" not in config:
+            config["user_proxy_config"] = {
+                "proxy_type": "http",
+                "proxy_host": "123.0.0.1",
+                "proxy_port": "8080",
+                "proxy_user": "proxyuser",
+                "proxy_password": "proxypass",
+                "proxy_soft": "luminati"
+            }
+
+        # Garantir que group_id está presente
+        if "group_id" not in config:
+            raise ValueError("group_id é obrigatório")
+
+        # Log dos dados que serão enviados
+        logger.info(f"[CRIAR PERFIL] Enviando configuração: {json.dumps(config, indent=2)}")
+
+        # Fazer a requisição
+        response = requests.post(url, headers=headers, json=config, timeout=30)
+        response.raise_for_status()
+        
+        data = response.json()
+        
+        if data.get("code") == 0:
+            logger.info(f"[OK] Perfil criado com sucesso: {data.get('data')}")
+            return data.get("data")
+        else:
+            error_msg = data.get("msg", "Erro desconhecido")
+            logger.error(f"[ERRO] Falha ao criar perfil: {error_msg}")
+            raise ValueError(f"Erro ao criar perfil: {error_msg}")
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[ERRO] Erro de requisição ao criar perfil: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"[ERRO] Erro ao criar perfil: {str(e)}")
+        raise
+
+
 class ProfileManager:
     def __init__(self, cache):
         self.cache = cache
@@ -291,8 +372,7 @@ class ProfileManager:
         from credentials.credentials_manager import get_credential
 
         # Definir base_url e headers
-        self.base_url = get_credential(
-            "PA_BASE_URL") or "http://local.adspower.net:50325"
+        self.base_url = get_credential("PA_BASE_URL") or "http://local.adspower.net:50325"
         api_key = get_credential("PA_API_KEY")
 
         self.headers = {
@@ -300,12 +380,18 @@ class ProfileManager:
             "Content-Type": "application/json"
         } if api_key else {}
 
-        logging.info(
-            f"ProfileManager inicializado com base_url: {self.base_url}")
+        logging.info(f"ProfileManager inicializado com base_url: {self.base_url}")
 
-    def get_all_profiles(self, force_refresh=False):
+    def get_all_profiles(self, force_refresh=False, include_no_group=False):
         """
         Obtém todos os perfis ativos da API.
+
+        Args:
+            force_refresh (bool): Se True, força uma atualização do cache
+            include_no_group (bool): Se True, inclui perfis sem grupo
+
+        Returns:
+            list: Lista de perfis ativos
         """
         try:
             logging.info(
@@ -322,13 +408,20 @@ class ProfileManager:
             logging.info(f"Resposta da API: {data}")
 
             if data.get("code") == 0 and "data" in data and "list" in data["data"]:
-                # Filtrar apenas perfis ativos
-                active_profiles = [
-                    profile for profile in data["data"]["list"]
-                    if profile.get('group_id') != '0' and profile.get('group_name')
-                ]
-                logging.info(
-                    f"Perfis ativos encontrados: {len(active_profiles)}")
+                profiles = data["data"]["list"]
+                
+                # Filtrar perfis baseado no parâmetro include_no_group
+                if not include_no_group:
+                    # Filtrar apenas perfis em grupos
+                    active_profiles = [
+                        profile for profile in profiles
+                        if profile.get('group_id') != '0' and profile.get('group_name')
+                    ]
+                else:
+                    # Incluir todos os perfis
+                    active_profiles = profiles
+
+                logging.info(f"Perfis ativos encontrados: {len(active_profiles)}")
                 return active_profiles
             else:
                 logging.warning(f"Resposta da API não contém perfis: {data}")
@@ -378,6 +471,35 @@ class ProfileManager:
             logger.error(f"Erro ao verificar perfis deletados: {str(e)}")
             return set()
 
+    def create_new_profile(self, config):
+        """
+        Cria um novo perfil usando a API v2.
+        
+        Args:
+            config (dict): Configuração do perfil
+            
+        Returns:
+            dict: Informações do perfil criado
+        """
+        return create_profile_v2(self.base_url, self.headers, config)
+
+    def connect_profile(self, user_id, debug_port=None):
+        """
+        Conecta a um perfil específico.
+        
+        Args:
+            user_id (str): ID do perfil para conectar
+            debug_port (int, optional): Porta específica para debugging
+            
+        Returns:
+            dict: Informações de conexão do perfil
+        """
+        # Primeiro verifica se o perfil é válido
+        if not is_profile_valid(self.base_url, self.headers, user_id):
+            raise ValueError(f"Perfil {user_id} não é válido ou não foi encontrado")
+            
+        return connect_to_profile(self.base_url, self.headers, user_id, debug_port)
+
 
 def process_reusable_number(reusable_number):
     if reusable_number:
@@ -389,3 +511,109 @@ def process_reusable_number(reusable_number):
     else:
         first_used_datetime = "N/A"
     return first_used_datetime
+
+
+def connect_to_profile(base_url, headers, user_id, debug_port=None):
+    """
+    Conecta a um perfil existente do AdsPower.
+
+    Args:
+        base_url (str): URL base da API do AdsPower
+        headers (dict): Headers para autenticação
+        user_id (str): ID do perfil para conectar
+        debug_port (int, optional): Porta específica para debugging
+
+    Returns:
+        dict: Informações de conexão incluindo selenium_port, debug_port e ws_address
+    """
+    try:
+        # Primeiro tenta a API v1 (mais estável)
+        logger.info(f"[CONECTAR] Tentando conectar ao perfil {user_id} via API v1")
+        url_v1 = f"{base_url}/api/v1/browser/start"
+        payload = {
+            "user_id": user_id,
+            "debug_port": debug_port
+        }
+        
+        response = requests.post(url_v1, headers=headers, json=payload, timeout=30)
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("code") == 0:
+                logger.info(f"[OK] Conexão estabelecida via API v1: {data.get('data')}")
+                return data.get("data")
+        
+        # Se falhar, tenta a API v2 como fallback
+        logger.info(f"[CONECTAR] API v1 falhou, tentando API v2")
+        url_v2 = f"{base_url}/api/v2/browser-profile/start"
+        payload = {
+            "profile_id": user_id,
+            "debug_port": debug_port
+        }
+        
+        response = requests.post(url_v2, headers=headers, json=payload, timeout=30)
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("code") == 0:
+                logger.info(f"[OK] Conexão estabelecida via API v2: {data.get('data')}")
+                return data.get("data")
+        
+        error_msg = "Falha ao conectar usando ambas APIs v1 e v2"
+        logger.error(f"[ERRO] {error_msg}")
+        raise ValueError(error_msg)
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[ERRO] Erro de requisição ao conectar ao perfil: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"[ERRO] Erro ao conectar ao perfil: {str(e)}")
+        raise
+
+
+def is_profile_valid(base_url, headers, user_id):
+    """
+    Verifica se um perfil é válido usando múltiplos métodos.
+
+    Args:
+        base_url (str): URL base da API do AdsPower
+        headers (dict): Headers para autenticação
+        user_id (str): ID do perfil para verificar
+
+    Returns:
+        bool: True se o perfil é válido, False caso contrário
+    """
+    try:
+        # Método 1: Verificar via API v1 (prioridade)
+        url_v1 = f"{base_url}/api/v1/user/info"
+        response = requests.get(url_v1, headers=headers, params={"user_id": user_id})
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("code") == 0:
+                logger.info(f"[OK] Perfil {user_id} validado via API v1")
+                return True
+
+        # Método 2: Verificar na lista de perfis
+        url_list = f"{base_url}/api/v1/user/list"
+        response = requests.get(url_list, headers=headers, params={"page": 1, "page_size": 100})
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("code") == 0:
+                profiles = data.get("data", {}).get("list", [])
+                if any(p.get("user_id") == user_id for p in profiles):
+                    logger.info(f"[OK] Perfil {user_id} encontrado na lista de perfis")
+                    return True
+
+        # Método 3: Verificar via API v2 (último recurso)
+        url_v2 = f"{base_url}/api/v2/browser-profile/info"
+        response = requests.get(url_v2, headers=headers, params={"profile_id": user_id})
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("code") == 0:
+                logger.info(f"[OK] Perfil {user_id} validado via API v2")
+                return True
+
+        logger.warning(f"[AVISO] Perfil {user_id} não encontrado em nenhum método de validação")
+        return False
+
+    except Exception as e:
+        logger.error(f"[ERRO] Erro ao verificar perfil {user_id}: {str(e)}")
+        return False

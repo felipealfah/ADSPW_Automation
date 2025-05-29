@@ -64,31 +64,6 @@ class WebsiteCodeInjector:
             logger.info(
                 "[INICIO] Iniciando captura do código de verificação...")
 
-            # Se credenciais forem fornecidas, tentar login antes de capturar
-            email = self.website_data.get("email")
-            pwd = self.website_data.get("password")
-            if email and pwd:
-                try:
-                    current = self.driver.current_url
-                    if "/login" in current:
-                        logger.info("[INFO] Página de login detectada, fazendo login automático...")
-                        # Preencher email
-                        if self._check_element_exists(By.ID, "identifierId", timeout=5):
-                            elem = self.driver.find_element(By.ID, "identifierId")
-                            elem.clear(); elem.send_keys(email)
-                            btn = self.driver.find_element(By.ID, "identifierNext")
-                            self._click_safely(btn)
-                            self._wait_for_page_load(); time.sleep(2)
-                        # Preencher senha
-                        if self._check_element_exists(By.NAME, "password", timeout=5):
-                            pwd_elem = self.driver.find_element(By.NAME, "password")
-                            pwd_elem.clear(); pwd_elem.send_keys(pwd)
-                            pwd_btn = self.driver.find_element(By.ID, "passwordNext")
-                            self._click_safely(pwd_btn)
-                            self._wait_for_page_load(); time.sleep(2)
-                except Exception as e:
-                    logger.warning(f"[AVISO] Falha no login automático: {str(e)}")
-
             # Redirecionar para a página base do AdSense se não estivermos lá
             initial_url = self.driver.current_url
             if "adsense.google.com/adsense" not in initial_url:
@@ -367,8 +342,6 @@ class WebsiteCodeInjector:
                 "//button[contains(text(), 'Continue')]",
                 "//button[contains(text(), 'Próximo')]",
                 "//button[contains(text(), 'Continuar')]",
-                "//button//span[contains(text(), 'Configurar agora')]",
-                "//button//span[contains(text(), 'Set up now')]",
                 "//onboarding-card[3]//button",
                 "//article//div[2]//button"
             ]
@@ -378,31 +351,6 @@ class WebsiteCodeInjector:
                     button = self.driver.find_element(By.XPATH, selector)
                     if button.is_displayed() and button.is_enabled():
                         return self._click_safely(button)
-
-            # Fallback adicional: clicar em botão dentro de onboarding-card
-            cards = self.driver.find_elements(By.TAG_NAME, "onboarding-card")
-            for card in cards:
-                try:
-                    btn = card.find_element(By.TAG_NAME, "button")
-                    if btn.is_displayed() and btn.is_enabled():
-                        logger.info("[INFO] Botão encontrado dentro de onboarding-card (fallback), clicando...")
-                        return self._click_safely(btn)
-                except Exception:
-                    continue
-
-            # Fallback adicional: material-button tags
-            material_buttons = self.driver.find_elements(By.TAG_NAME, "material-button")
-            for mb in material_buttons:
-                if mb.is_displayed() and mb.is_enabled():
-                    logger.info("[INFO] Botão material-button encontrado (fallback), clicando...")
-                    return self._click_safely(mb)
-
-            # Fallback adicional: divs com role='button'
-            div_buttons = self.driver.find_elements(By.CSS_SELECTOR, "div[role='button']")
-            for div in div_buttons:
-                if div.is_displayed():
-                    logger.info("[INFO] Div role=button encontrada (fallback), clicando...")
-                    return self._click_safely(div)
 
             # Fallback final: tentar clicar em qualquer botão visível na página
             buttons = self.driver.find_elements(By.TAG_NAME, "button")

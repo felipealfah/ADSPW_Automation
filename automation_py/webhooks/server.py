@@ -108,10 +108,9 @@ class PhoneParams(BaseModel):
 class GmailCreationParams(BaseModel):
     headless: Optional[bool] = False
     max_wait_time: Optional[int] = 60
-    recovery_email: str = Field(..., description="Email de recuperação obrigatório")
-    email: Optional[str] = None
-    password: Optional[str] = None
+    recovery_email: Optional[str] = None  # Tornando o recovery_email opcional
     webhook_callback: Optional[str] = None
+    close_browser: Optional[bool] = False  # Controla se o browser deve ser fechado após a criação
 
 
 class AdSenseCreationParams(BaseModel):
@@ -120,7 +119,9 @@ class AdSenseCreationParams(BaseModel):
     headless: Optional[bool] = False
     max_wait_time: Optional[int] = 60
     webhook_callback: Optional[str] = None
-    close_browser_on_finish: Optional[bool] = False
+    close_browser: Optional[bool] = False  # Renomeado de close_browser_on_finish para close_browser
+    email: Optional[str] = None
+    password: Optional[str] = None
 
 
 class BatchProfileConfig(BaseModel):
@@ -270,20 +271,12 @@ def process_gmail_creation(job_id: str, user_id: str, data: dict):
         headless = data.get('headless', False) if data else False
         max_wait_time = data.get('max_wait_time', 60) if data else 60
         recovery_email = data.get('recovery_email') if data else None
-        requested_email = data.get('email') if data else None
-        requested_password = data.get('password') if data else None
+        close_browser = data.get('close_browser', False)  # Novo parâmetro
 
         # Gerar credenciais para o Gmail
-
         credentials = generate_gmail_credentials()
         if not credentials:
             raise ValueError("Falha ao gerar credenciais para o Gmail")
-
-        # Override generated credentials if provided by request
-        if requested_email:
-            credentials['username'] = requested_email.split('@')[0] if '@' in requested_email else requested_email
-        if requested_password:
-            credentials['password'] = requested_password
 
         # Adicionar recovery_email às credenciais se fornecido
         if recovery_email:
@@ -296,64 +289,61 @@ def process_gmail_creation(job_id: str, user_id: str, data: dict):
 
         # Verificar se perfil existe
         profile_manager = ProfileManager(TempCache())
-        profiles = profile_manager.get_all_profiles(force_refresh=True)
-        profile = next(
-            (p for p in profiles if p.get("user_id") == user_id), None)
+        profiles = profile_manager.get_all_profiles(force_refresh=True, include_no_group=True)  # Modificado para incluir perfis sem grupo
+        
+        logger.info(f"[DEBUG] Total de perfis encontrados: {len(profiles)}")
+        logger.info(f"[DEBUG] IDs dos perfis disponíveis: {[p.get('user_id') for p in profiles]}")
+        
+        profile = next((p for p in profiles if p.get("user_id") == user_id), None)
         if not profile:
             raise ValueError(f"Perfil {user_id} não encontrado")
-
-        # Importar as classes necessárias
+            
+        logger.info(f"[DEBUG] Detalhes do perfil encontrado: {profile}")
 
         # Obter credenciais
         base_url = get_credential("PA_BASE_URL")
         api_key = get_credential("PA_API_KEY")
         sms_api_key = get_credential("SMS_ACTIVATE_API_KEY")
 
-        # Configurar browser manager
-        browser_config = BrowserConfig(
-            headless=headless, max_wait_time=max_wait_time)
-        adspower_manager = AdsPowerManager(base_url, api_key)
-        browser_manager = BrowserManager(adspower_manager)
-        browser_manager.set_config(browser_config)
+        # Criar instância do AdsPowerManager
+        ads_power = AdsPowerManager(base_url=base_url, api_key=api_key)
 
-        # Inicializar componentes
-        sms_api = SMSAPI(sms_api_key) if sms_api_key else None
+        # Criar instância do SMSAPI
+        sms_api = SMSAPI(api_key=sms_api_key)
+
+        # Criar instância do GmailCreator
         gmail_creator = GmailCreator(
-            browser_manager=browser_manager,
+            browser_manager=ads_power,
             credentials=credentials,
             sms_api=sms_api,
-            profile_name=user_id
+            profile_name=profile.get("name", "default_profile"),
+            close_browser=close_browser
         )
 
-        # Criar conta
-        success, result = gmail_creator.create_account(user_id)
+        # Executar criação da conta
+        success, account_data = gmail_creator.create_account(user_id)
 
         if success:
-            # Atualizar status com sucesso
             update_job_status(
                 job_id=job_id,
                 status="completed",
                 message="Conta criada com sucesso",
-                result=result
+                result=account_data
             )
         else:
-            # Atualizar status com erro
             update_job_status(
                 job_id=job_id,
                 status="error",
-                message="Falha ao criar conta Gmail",
-                error_details="O processo de criação falhou. Verifique os logs para mais detalhes."
+                message="Erro ao criar conta",
+                error_details=str(account_data) if account_data else "Erro desconhecido"
             )
 
     except Exception as e:
         logger.error(f"Erro ao processar job {job_id}: {str(e)}")
-
-        # Atualizar status com erro
         update_job_status(
             job_id=job_id,
             status="error",
-            message=f"Erro ao criar conta: {str(e)}",
-            error_details=str(e)
+            message=f"Erro ao criar conta: {str(e)}"
         )
 
 
@@ -557,8 +547,14 @@ async def get_sms_status(activation_id: str):
 
 
 @app.get("/profiles")
-async def list_profiles(force_refresh: bool = False):
-    """Endpoint para listar todos os perfis do AdsPower."""
+async def list_profiles(force_refresh: bool = False, include_no_group: bool = False):
+    """
+    Endpoint para listar todos os perfis do AdsPower.
+    
+    Args:
+        force_refresh (bool): Se True, força uma atualização do cache
+        include_no_group (bool): Se True, inclui perfis sem grupo
+    """
     try:
         # Obter credenciais
         base_url = get_credential("PA_BASE_URL")
@@ -579,7 +575,9 @@ async def list_profiles(force_refresh: bool = False):
 
         # Obter perfis
         profiles = profile_manager.get_all_profiles(
-            force_refresh=force_refresh)
+            force_refresh=force_refresh,
+            include_no_group=include_no_group
+        )
 
         if not profiles:
             raise HTTPException(
@@ -615,8 +613,7 @@ async def list_profiles(force_refresh: bool = False):
                 detail="Nenhum perfil válido encontrado"
             )
 
-        logger.info(
-            f"[OK] Retornando {len(simplified_profiles)} perfis do AdsPower")
+        logger.info(f"[OK] Retornando {len(simplified_profiles)} perfis do AdsPower")
         return ProfileListResponse(
             success=True,
             count=len(simplified_profiles),
@@ -634,8 +631,14 @@ async def list_profiles(force_refresh: bool = False):
 
 
 @app.get("/profiles/{user_id}")
-async def get_profile_details(user_id: str):
-    """Endpoint para obter detalhes de um perfil específico."""
+async def get_profile_details(user_id: str, include_no_group: bool = True):
+    """
+    Endpoint para obter detalhes de um perfil específico.
+    
+    Args:
+        user_id (str): ID do perfil a ser buscado
+        include_no_group (bool): Se True, inclui perfis sem grupo na busca
+    """
     try:
         # Obter credenciais
         base_url = get_credential("PA_BASE_URL")
@@ -654,7 +657,10 @@ async def get_profile_details(user_id: str):
         profile_manager = ProfileManager(TempCache())
 
         # Obter perfis
-        profiles = profile_manager.get_all_profiles(force_refresh=True)
+        profiles = profile_manager.get_all_profiles(
+            force_refresh=True,
+            include_no_group=include_no_group
+        )
 
         # Encontrar o perfil específico
         profile = next(
@@ -690,16 +696,6 @@ async def create_gmail_account(
 ):
     """Endpoint para criar uma conta Gmail."""
     try:
-        # Validar email de recuperação obrigatório
-        if not params.recovery_email:
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "success": False,
-                    "error": "Email de recuperação não fornecido",
-                    "error_code": "MISSING_RECOVERY_EMAIL"
-                }
-            )
         # Gerar job_id
         job_id = str(uuid.uuid4())
 
@@ -1215,8 +1211,7 @@ def process_adsense_creation(job_id, user_id, data):
                 message=f"Erro ao importar dependências: {str(e)}",
                 error_details=f"Módulo não encontrado: {str(e)}. Verifique se o pacote adsense_creator está instalado."
             )
-            logger.error(
-                f"[ERRO] Erro ao importar módulos para AdSense Creator: {str(e)}")
+            logger.error(f"[ERRO] Erro ao importar módulos para AdSense Creator: {str(e)}")
             return
 
         # Obter credenciais
@@ -1232,68 +1227,6 @@ def process_adsense_creation(job_id, user_id, data):
             )
             return
 
-        # Verificar diretamente se o perfil existe através de uma chamada API direta
-        try:
-            headers = {"Authorization": f"Bearer {api_key}"}
-            response = requests.get(
-                f"{base_url}/api/v1/user/list", headers=headers, timeout=30)
-
-            if response.status_code == 200:
-                api_data = response.json()
-                if api_data.get("code") == 0 and "list" in api_data.get("data", {}):
-                    profiles = api_data["data"]["list"]
-                    profile_exists = any(profile.get(
-                        "user_id") == user_id for profile in profiles)
-
-                    if not profile_exists:
-                        logger.warning(f"Perfil {user_id} não encontrado na listagem; tentando fallback com get_profile_info")
-                        # Fallback: verificar perfil através de AdsPowerManager.get_profile_info
-                        apm = AdsPowerManager(base_url, api_key)
-                        profile_info = apm.get_profile_info(user_id)
-                        if profile_info:
-                            logger.info(f"Perfil {user_id} encontrado via get_profile_info, prosseguindo.")
-                        else:
-                            logger.warning(f"Perfil {user_id} não encontrado mesmo via get_profile_info.")
-                            update_job_status(
-                                job_id=job_id,
-                                status="failed",
-                                message=f"Perfil {user_id} não encontrado",
-                                error_details=f"O perfil com ID {user_id} não foi encontrado via listagem ou get_profile_info."
-                            )
-                            return
-                    else:
-                        logger.info(
-                            f"Perfil {user_id} encontrado. Continuando com a criação da conta.")
-                else:
-                    logger.error(
-                        f"Resposta inválida da API ao listar perfis: {api_data}")
-                    update_job_status(
-                        job_id=job_id,
-                        status="failed",
-                        message="Falha ao verificar se o perfil existe",
-                        error_details=f"Resposta inválida da API AdsPower: {api_data}"
-                    )
-                    return
-            else:
-                logger.error(
-                    f"Falha ao consultar API do AdsPower: Status code {response.status_code}")
-                update_job_status(
-                    job_id=job_id,
-                    status="failed",
-                    message=f"Falha ao verificar perfil: Status code {response.status_code}",
-                    error_details=f"A API do AdsPower retornou status code {response.status_code} ao tentar listar perfis."
-                )
-                return
-        except Exception as e:
-            logger.error(f"Erro na requisição ao verificar perfil: {str(e)}")
-            update_job_status(
-                job_id=job_id,
-                status="failed",
-                message=f"Erro ao verificar perfil: {str(e)}",
-                error_details=f"Ocorreu um erro ao tentar verificar se o perfil existe: {str(e)}"
-            )
-            return
-
         # Configurar browser manager
         browser_config = BrowserConfig(
             headless=data.get('headless', False),
@@ -1301,10 +1234,9 @@ def process_adsense_creation(job_id, user_id, data):
         )
 
         try:
-            adspower_manager = AdsPowerManager(base_url, api_key)
-            browser_manager = BrowserManager(adspower_manager)
-            browser_manager.set_config(browser_config)
-
+            # Inicializar AdsPowerManager
+            adspower_manager = AdsPowerManager(base_url=base_url, api_key=api_key)
+            
             # Verificar se o AdsPower está acessível
             if not adspower_manager.check_api_health(force_check=True):
                 update_job_status(
@@ -1315,6 +1247,10 @@ def process_adsense_creation(job_id, user_id, data):
                 )
                 return
 
+            # Inicializar BrowserManager
+            browser_manager = BrowserManager(adspower_manager)
+            browser_manager.set_config(browser_config)
+
             # Criar objeto de conta com os dados recebidos
             account_data = {
                 "website_url": data.get('website_url'),
@@ -1322,11 +1258,18 @@ def process_adsense_creation(job_id, user_id, data):
                 "capture_codes": False  # Desativar a captura de códigos neste endpoint
             }
 
+            # Incluir email/senha no account_data, se fornecidos
+            if data.get('email'):
+                account_data['email'] = data.get('email')
+            if data.get('password'):
+                account_data['password'] = data.get('password')
+
             # Inicializar o criador de AdSense
             adsense_creator = AdSenseCreator(
-                browser_manager=browser_manager,
+                browser_manager=browser_manager,  # Agora passando o BrowserManager ao invés do AdsPowerManager
                 account_data=account_data,
-                profile_name=user_id
+                profile_name=user_id,
+                close_browser=data.get('close_browser', False)
             )
 
             # Executar criação da conta
@@ -1346,17 +1289,15 @@ def process_adsense_creation(job_id, user_id, data):
                     message="Conta AdSense criada com sucesso",
                     result=result
                 )
-                logger.info(
-                    f"[ADSENSE] Conta AdSense criada com sucesso para o job {job_id}")
+                logger.info(f"[ADSENSE] Conta AdSense criada com sucesso para o job {job_id}")
             else:
                 update_job_status(
                     job_id=job_id,
                     status="failed",
                     message="Falha ao criar conta AdSense",
-                    error_details="O processo de criação falhou. Verifique os logs para mais detalhes."
+                    error_details=result.get("error", "O processo de criação falhou. Verifique os logs para mais detalhes.")
                 )
-                logger.error(
-                    f"[ADSENSE] Falha ao criar conta AdSense para o job {job_id}")
+                logger.error(f"[ADSENSE] Falha ao criar conta AdSense para o job {job_id}")
 
         except Exception as e:
             update_job_status(
@@ -1368,8 +1309,7 @@ def process_adsense_creation(job_id, user_id, data):
             logger.error(f"[ERRO] Erro ao criar conta AdSense: {str(e)}")
 
     except Exception as e:
-        logger.error(
-            f"[ERRO] Erro geral no processamento do job {job_id}: {str(e)}")
+        logger.error(f"[ERRO] Erro geral no processamento do job {job_id}: {str(e)}")
         try:
             update_job_status(
                 job_id=job_id,
@@ -2032,6 +1972,12 @@ async def verify_adsense_account(user_id: str, data: dict = None):
         )
 
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=5001)
+class ProfileV2Config(BaseModel):
+    """Configuração para criação de perfil usando API v2."""
+    name: Optional[str] = None
+    group_id: str = "0"  # 0 para "Ungrouped"
+    remark: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
+    proxy_config: Optional[Dict] = None
+    fingerprint_config: Optional[Dict] = None

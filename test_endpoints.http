@@ -19,18 +19,33 @@ GET {{baseUrl}}/profiles/{{userId}}
 GET https://rotan8n.online/profiles/kxy3rvy
 
 ### Create Gmail Account
-POST {{baseUrl}}/create-gmail/{{userId}}
+POST {{baseUrl}}/create-gmail/kyony7n
 Content-Type: application/json
 
 {
   "headless": false,
   "max_wait_time": 60,
-  "recovery_email": "recovery@example.com",
-  "webhook_callback": "http://example.com/callback"
+   "close_browser": false
 }
 
 ### Get Gmail Job Status
 GET {{baseUrl}}/gmail-job-status/{{gmailJobId}}
+
+### Create AdSense Account
+POST {{baseUrl}}/adsense-creator/kyony7n
+Content-Type: application/json
+
+{
+  "website_url": "https://sabedoriadigital.xyz",
+  "country": "BR",
+  "headless": false,
+  "max_wait_time": 60,
+  "close_browser_on_finish": false,
+  "email": "jacobwatson052002@gmail.com",
+  "password": ")19att(wQKI9",
+  "close_browser": false
+
+}
 
 ### Create AdSense Account
 POST https://rotan8n.online/adsense-creator/kxy3rvy
@@ -41,18 +56,22 @@ Content-Type: application/json
   "country": "BR",
   "headless": false,
   "max_wait_time": 60,
-  "close_browser_on_finish": false
+  "close_browser_on_finish": false,
+  "email": "example@gmail.com",
+  "password": "asdfhasjkdhf",
+  "close_browser": false
+
 }
 
 
 ### Get AdSense Job Status
-GET {{baseUrl}}/adsense-job-status/2e672eba-ba37-4049-a67f-38978b1c8100
+GET {{baseUrl}}/adsense-job-status/2e2e61b8-8c98-4dde-857b-9b92d59ea38d
 
 ### Get AdSense Job Status
 GET https://rotan8n.online/adsense-job-status/2e672eba-ba37-4049-a67f-38978b1c8100
 
 ### Capture AdSense Codes
-POST {{baseUrl}}/adsense-code-capture/{{userId}}
+POST {{baseUrl}}/adsense-code-capture/kyony7n
 Content-Type: application/json
 
 {

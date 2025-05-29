@@ -78,24 +78,11 @@ class AdSenseCreationState(Enum):
 class AdSenseCreator:
     """Classe principal que gerencia o fluxo de criação da conta AdSense."""
 
-    def __init__(self, browser_manager, account_data, profile_name="default_profile", close_browser=False):
-        """
-        Inicializa o criador de contas AdSense.
-
-        Args:
-            browser_manager: Instância do BrowserManager
-            account_data: Dados da conta a ser criada
-            profile_name: Nome do perfil do AdsPower (opcional)
-            close_browser: Se True, fecha o browser após a conclusão
-        """
-        # Gerenciadores e configurações principais
+    def __init__(self, browser_manager, account_data, profile_name="default_profile"):
         self.browser_manager = browser_manager
-        self.adspower_manager = browser_manager.ads_power_api  # Corrigido: usando ads_power_api ao invés de adspower_manager
         self.account_data = account_data
         self.profile_name = profile_name if profile_name else "default_profile"
-        self.close_browser = close_browser
         self.driver = None
-        self.wait = None
 
         # Configuração geral
         self.config = {
@@ -104,7 +91,6 @@ class AdSenseCreator:
             "log_config": log_config
         }
 
-        # Estado inicial e exceções do Selenium
         self.state = AdSenseCreationState.INITIAL
         self.selenium_exceptions = (
             TimeoutException,
@@ -114,6 +100,7 @@ class AdSenseCreator:
             WebDriverException
         )
 
+    @retry_on_exception(max_attempts=3, delay=3, exceptions=(WebDriverException,))
     def initialize_browser(self, user_id: str) -> bool:
         """
         Inicializa o browser e configura o driver.
@@ -125,66 +112,35 @@ class AdSenseCreator:
             bool: True se a inicialização foi bem sucedida
         """
         try:
-            logger.info("[INICIO] Iniciando browser para automação...")
-            
-            # 1. Verificar se o browser já está em execução e tentar conectar
-            logger.info("[PASSO 1] Verificando estado atual do browser...")
-            browser_info = self.adspower_manager.get_browser_info(user_id)
-            
-            if browser_info and browser_info.get("selenium_ws"):
-                logger.info(f"[INFO] Browser já em execução para perfil {user_id}, tentando conectar...")
-                self.driver = self.adspower_manager.connect_selenium(browser_info)
-                if self.driver:
-                    logger.info("[OK] Conectado ao browser existente com sucesso")
-                    self._setup_driver_config()
-                    return True
-            
-            # 2. Se não está em execução, iniciar novo browser
-            logger.info("[PASSO 2] Iniciando novo browser...")
-            success, browser_info = self.browser_manager.start_browser(user_id)
-            
-            if not success or not browser_info:
-                logger.error("[ERRO] Falha ao iniciar o browser")
+            if not self.browser_manager.ensure_browser_ready(user_id):
+                logger.error(
+                    "[ERRO] Falha ao garantir que o browser está pronto")
                 return False
-            
-            logger.info("[OK] Browser iniciado com sucesso")
 
-            # 3. Conectar ao browser via Selenium
-            logger.info("[PASSO 3] Conectando ao browser via Selenium...")
-            self.driver = self.adspower_manager.connect_selenium(browser_info)
-            
+            self.driver = self.browser_manager.get_driver()
             if not self.driver:
-                logger.error("[ERRO] Falha ao conectar ao browser via Selenium")
+                logger.error("[ERRO] Driver não disponível")
                 return False
 
-            # 4. Configurar driver
-            self._setup_driver_config()
-            
-            logger.info("[OK] Browser inicializado e pronto para automação")
+            self.wait = WebDriverWait(self.driver, timeouts.DEFAULT_WAIT)
+            logger.info("[OK] Browser inicializado com sucesso")
+
+            # Configurar o tamanho da janela para melhor visualização
+            try:
+                self.driver.set_window_size(1366, 768)
+                logger.info(
+                    "[INFO] Tamanho da janela configurado para 1366x768")
+            except Exception as e:
+                logger.warning(
+                    f"[AVISO] Não foi possível configurar o tamanho da janela: {str(e)}")
+
             return True
 
         except Exception as e:
             logger.error(f"[ERRO] Erro ao inicializar browser: {str(e)}")
             return False
 
-    def _setup_driver_config(self):
-        """Configura as opções padrão do driver."""
-        try:
-            # Configurar wait
-            self.wait = WebDriverWait(self.driver, timeouts.DEFAULT_WAIT)
-            
-            # Configurar tamanho da janela
-            try:
-                self.driver.set_window_size(1366, 768)
-                logger.info("[INFO] Tamanho da janela configurado para 1366x768")
-            except Exception as e:
-                logger.warning(f"[AVISO] Não foi possível configurar o tamanho da janela: {str(e)}")
-                
-        except Exception as e:
-            logger.error(f"[ERRO] Erro ao configurar driver: {str(e)}")
-            raise
-
-    def create_account(self, user_id: str) -> tuple[bool, dict]:
+    def create_account(self, user_id: str):
         """
         Executa todo o fluxo de criação da conta AdSense.
 
@@ -193,22 +149,17 @@ class AdSenseCreator:
 
         Returns:
             tuple: (sucesso, dados_da_conta)
-                - sucesso (bool): True se a conta foi criada com sucesso
-                - dados_da_conta (dict): Dicionário com informações da conta criada
         """
         try:
             logger.info("[INICIO] Iniciando criação da conta AdSense...")
 
-            # Verificar dados da conta
-            if not self._validate_account_data():
-                raise AdSenseCreationError("[ERRO] Dados da conta inválidos ou incompletos")
+            # Verificar e limpar o arquivo de credenciais
+            self._clean_credentials_file()
 
-            # 1. Inicializar o browser
-            logger.info("[PASSO 1] Inicializando browser...")
+            # Inicializar o browser primeiro
             if not self.initialize_browser(user_id):
-                raise AdSenseCreationError("[ERRO] Falha ao inicializar o browser")
-            
-            logger.info("[OK] Browser inicializado com sucesso")
+                raise AdSenseCreationError(
+                    "[ERRO] Falha ao inicializar o browser")
 
             # Contador para tentativas de criação completa da conta
             complete_attempts = 0
@@ -216,120 +167,103 @@ class AdSenseCreator:
 
             while complete_attempts < max_complete_attempts:
                 complete_attempts += 1
-                logger.info(f"[ATUALIZANDO] Tentativa {complete_attempts} de {max_complete_attempts} para criar conta completa")
+                logger.info(
+                    f"[ATUALIZANDO] Tentativa {complete_attempts} de {max_complete_attempts} para criar conta completa")
 
                 try:
                     # Passo 1: Configuração inicial da conta
                     self.state = AdSenseCreationState.ACCOUNT_SETUP
-                    account_setup = AccountSetup(self.driver, self.account_data)
+                    account_setup = AccountSetup(
+                        self.driver, self.account_data)
                     if not account_setup.start_setup():
-                        raise AdSenseCreationError("[ERRO] Falha na configuração inicial da conta AdSense.")
+                        raise AdSenseCreationError(
+                            "[ERRO] Falha na configuração inicial da conta AdSense.")
 
                     # Passo 2: Capturar códigos de verificação (publisher ID e código ads.txt)
                     if self.account_data.get("capture_codes", True):
                         self.state = AdSenseCreationState.CODE_CAPTURE
-                        code_injector = WebsiteCodeInjector(self.driver, self.account_data)
+                        code_injector = WebsiteCodeInjector(
+                            self.driver, self.account_data)
                         if code_injector.capture_verification_code():
                             # Atualizar os dados da conta com os códigos capturados
                             captured_data = code_injector.get_captured_data()
                             self.account_data.update(captured_data)
-                            logger.info("[OK] Códigos de verificação capturados com sucesso")
+                            logger.info(
+                                "[OK] Códigos de verificação capturados com sucesso")
                         else:
-                            logger.warning("[AVISO] Falha ao capturar códigos de verificação, continuando mesmo assim")
+                            logger.warning(
+                                "[AVISO] Falha ao capturar códigos de verificação, continuando mesmo assim")
+
+                    # Passo 3: Verificação do website (se necessário)
+                    if self.account_data.get("verify_website", False):
+                        self.state = AdSenseCreationState.WEBSITE_VERIFICATION
+                        # Implementar lógica de verificação de website aqui
+                        logger.info(
+                            "[INFO] Verificação do website não implementada ainda")
+                        pass
+
+                    # Passo 4: Configuração de pagamento (opcional)
+                    if self.account_data.get("setup_payment", False):
+                        self.state = AdSenseCreationState.PAYMENT_SETUP
+                        # Implementar lógica de configuração de pagamento aqui
+                        logger.info(
+                            "[INFO] Configuração de pagamento não implementada ainda")
+                        pass
+
+                    # Passo 5: Aguardar revisão (opcional)
+                    if self.account_data.get("wait_for_review", False):
+                        self.state = AdSenseCreationState.REVIEW_WAITING
+                        # Implementar lógica de espera pela revisão (ou simplesmente logar o status)
+                        logger.info(
+                            "[INFO] Conta AdSense criada e aguardando revisão.")
 
                     # Se chegou aqui, tudo deu certo!
                     self.state = AdSenseCreationState.COMPLETED
-                    
-                    # Preparar dados da conta para retorno
-                    account_details = {
-                        "website_url": self.account_data.get("website_url"),
-                        "country": self.account_data.get("country"),
+
+                    # Retornar os dados da conta AdSense, incluindo informações relevantes
+                    adsense_account_data = {
                         "email": self.account_data.get("email"),
-                        "password": self.account_data.get("password"),
-                        "profile_id": user_id,
-                        "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-                        "status": "active",
-                        "verification_codes": {
-                            "publisher_id": self.account_data.get("publisher_id"),
-                            "verification_code": self.account_data.get("verification_code"),
-                            "pub": self.account_data.get("pub"),
-                            "direct": self.account_data.get("direct")
-                        }
+                        "website": self.account_data.get("website_url"),
+                        "publisher_id": self.account_data.get("publisher_id", ""),
+                        "verification_code": self.account_data.get("verification_code", ""),
+                        "status": "review_pending",  # Ou outro status relevante
+                        "creation_date": time.strftime("%Y-%m-%d %H:%M:%S"),
+                        "profile": self.profile_name
                     }
 
-                    # Fechar o browser apenas se solicitado
-                    if self.close_browser:
-                        logger.info(f"[INFO] Fechando browser conforme solicitado para o perfil {user_id}")
-                        self.browser_manager.close_browser(user_id)
-                    else:
-                        logger.info(f"[INFO] Mantendo browser aberto para o perfil {user_id}")
-
-                    return True, account_details
+                    logger.info(
+                        f"[OK] Conta AdSense criada com sucesso! Retornando os dados: {adsense_account_data}")
+                    return True, adsense_account_data
 
                 except Exception as inner_e:
-                    logger.error(f"[ERRO] Erro na tentativa {complete_attempts}: {str(inner_e)}")
+                    logger.error(
+                        f"[ERRO] Erro na tentativa {complete_attempts}: {str(inner_e)}")
                     if complete_attempts >= max_complete_attempts:
-                        logger.error("[ERRO] Todas as tentativas de criação falharam.")
-                        raise AdSenseCreationError(f"Falha nas tentativas de criação da conta: {str(inner_e)}")
+                        logger.error(
+                            "[ERRO] Todas as tentativas de criação falharam.")
+                        raise AdSenseCreationError(
+                            f"Falha nas tentativas de criação da conta: {str(inner_e)}")
 
                     # Pequeno delay antes de tentar novamente
                     time.sleep(5)
                     self.driver.refresh()
                     time.sleep(3)
 
-        except AdSenseCreationError as e:
-            self.state = AdSenseCreationState.FAILED
-            logger.error(f"[ERRO] Erro durante o processo: {str(e)}")
-            
-            # Fechar o browser em caso de erro apenas se solicitado
-            if self.close_browser and hasattr(self, 'browser_manager'):
-                try:
-                    self.browser_manager.close_browser(user_id)
-                except Exception as close_error:
-                    logger.error(f"[ERRO] Falha ao fechar browser após erro: {str(close_error)}")
-            
-            return False, {"error": str(e)}
-
         except Exception as e:
             self.state = AdSenseCreationState.FAILED
-            logger.error(f"[ERRO] Erro inesperado: {str(e)}")
-            
-            # Fechar o browser em caso de erro apenas se solicitado
-            if self.close_browser and hasattr(self, 'browser_manager'):
-                try:
-                    self.browser_manager.close_browser(user_id)
-                except Exception as close_error:
-                    logger.error(f"[ERRO] Falha ao fechar browser após erro: {str(close_error)}")
-            
+            logger.error(f"[ERRO] Falha na criação da conta AdSense: {str(e)}")
             return False, {"error": str(e)}
 
-    def _validate_account_data(self) -> bool:
-        """
-        Valida os dados da conta antes de iniciar o processo.
-
-        Returns:
-            bool: True se os dados são válidos
-        """
-        required_fields = ["website_url", "country"]
-        
-        try:
-            # Verificar campos obrigatórios
-            for field in required_fields:
-                if field not in self.account_data or not self.account_data[field]:
-                    logger.error(f"[ERRO] Campo obrigatório ausente: {field}")
-                    return False
-
-            # Validar URL do site
-            website_url = self.account_data["website_url"]
-            if not website_url.startswith(("http://", "https://")):
-                self.account_data["website_url"] = f"https://{website_url}"
-                logger.info(f"[INFO] URL ajustada para: {self.account_data['website_url']}")
-
-            return True
-
-        except Exception as e:
-            logger.error(f"[ERRO] Erro ao validar dados da conta: {str(e)}")
-            return False
+        finally:
+            # Opcional: fechar o navegador ao finalizar (ou deixar aberto para inspeção)
+            # Definindo como False para manter o navegador aberto conforme solicitado
+            if self.account_data.get("close_browser_on_finish", False) and self.driver:
+                try:
+                    self.browser_manager.close_browser()
+                    logger.info("[OK] Navegador fechado com sucesso")
+                except Exception as close_e:
+                    logger.warning(
+                        f"[AVISO] Erro ao fechar navegador: {str(close_e)}")
 
     def _clean_credentials_file(self):
         """
