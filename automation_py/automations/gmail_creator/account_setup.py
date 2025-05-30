@@ -79,7 +79,7 @@ class AccountSetup:
         """Inicia o processo de configuração da conta."""
         try:
             logger.info("[INICIO] Iniciando configuração da conta Gmail...")
-            
+
             # Salvar screenshot do estado inicial
             self._save_screenshot("estado_inicial_pagina")
             logger.info(f"[DIAGNÓSTICO] URL inicial: {self.driver.current_url}")
@@ -143,7 +143,7 @@ class AccountSetup:
         except Exception as e:
             logger.error(f"[ERRO] Falha ao executar setup: {str(e)}")
             self._save_screenshot("erro_setup")
-            return False
+                    return False
 
     def _fill_basic_info(self):
         """
@@ -225,7 +225,7 @@ class AccountSetup:
             
             if clicked:
                 logger.info("[OK] Informações básicas preenchidas e botão Next clicado com sucesso")
-                return True
+            return True
             else:
                 logger.error("[ERRO] Não foi possível clicar no botão Next após várias tentativas")
                 return False
@@ -544,7 +544,7 @@ class AccountSetup:
                             except Exception as js_error:
                                 logger.warning(f"[AVISO] Clique via JavaScript também falhou: {str(js_error)}")
                                 continue
-                    except Exception as e:
+        except Exception as e:
                         logger.warning(f"[AVISO] Não foi possível encontrar/clicar no botão com XPath {xpath}: {str(e)}")
                         continue
 
@@ -576,10 +576,10 @@ class AccountSetup:
                     continue
                 
                 # Username está disponível, verificar se avançamos para a tela de senha
-                current_screen = self._check_current_screen()
-                if current_screen == "password_screen":
+            current_screen = self._check_current_screen()
+            if current_screen == "password_screen":
                     logger.info(f"[OK] Username '{current_username}' configurado com sucesso")
-                    return True
+                return True
                 else:
                     # Se não avançamos, tentar clicar no botão Next novamente
                     logger.info("[AVISO] Não avançamos para a tela de senha, tentando clicar no Next novamente...")
@@ -613,14 +613,14 @@ class AccountSetup:
                         EC.presence_of_element_located((By.XPATH, xpath))
                     ):
                         logger.info("[AVISO] Mensagem de erro detectada: username já está em uso")
-                        return True
+                return True
                 except TimeoutException:
                     continue
 
             page_source = self.driver.page_source.lower()
             if "username is taken" in page_source or "nome de usuário já está em uso" in page_source:
                 logger.info("[AVISO] Mensagem de erro detectada no HTML da página")
-                return True
+            return True
 
             return False
 
@@ -718,7 +718,7 @@ class AccountSetup:
             filename = f"{screenshot_dir}/{name}_{timestamp}.png"
             self.driver.save_screenshot(filename)
             logger.info(f"[DEBUG] Screenshot salvo: {filename}")
-        except Exception as e:
+            except Exception as e:
             logger.error(f"[ERRO] Erro ao salvar screenshot: {str(e)}")
 
     def _is_username_suggestion_screen(self) -> bool:
@@ -1239,7 +1239,7 @@ class AccountSetup:
                     return False
                 
                 logger.info(f"[OK] Mês selecionado: {month_value}")
-            except Exception as e:
+        except Exception as e:
                 logger.error(f"[ERRO] Falha ao selecionar mês: {str(e)}")
                 return False
 

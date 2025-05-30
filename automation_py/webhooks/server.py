@@ -119,9 +119,10 @@ class AdSenseCreationParams(BaseModel):
     headless: Optional[bool] = False
     max_wait_time: Optional[int] = 60
     webhook_callback: Optional[str] = None
-    close_browser: Optional[bool] = False  # Renomeado de close_browser_on_finish para close_browser
+    close_browser: Optional[bool] = False
     email: Optional[str] = None
     password: Optional[str] = None
+    recovery_email: Optional[str] = None  # Novo parâmetro para email de recuperação
 
 
 class BatchProfileConfig(BaseModel):
@@ -1258,11 +1259,13 @@ def process_adsense_creation(job_id, user_id, data):
                 "capture_codes": False  # Desativar a captura de códigos neste endpoint
             }
 
-            # Incluir email/senha no account_data, se fornecidos
+            # Incluir email/senha/recovery_email no account_data, se fornecidos
             if data.get('email'):
                 account_data['email'] = data.get('email')
             if data.get('password'):
                 account_data['password'] = data.get('password')
+            if data.get('recovery_email'):
+                account_data['recovery_email'] = data.get('recovery_email')
 
             # Inicializar o criador de AdSense
             adsense_creator = AdSenseCreator(

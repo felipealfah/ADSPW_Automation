@@ -40,11 +40,10 @@ Content-Type: application/json
   "country": "BR",
   "headless": false,
   "max_wait_time": 60,
-  "close_browser_on_finish": false,
+  "close_browser": false,
   "email": "jacobwatson052002@gmail.com",
   "password": ")19att(wQKI9",
-  "close_browser": false
-
+  "recovery_email": "email.recuperacao@exemplo.com"
 }
 
 ### Create AdSense Account

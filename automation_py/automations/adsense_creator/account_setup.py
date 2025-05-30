@@ -328,7 +328,7 @@ class AccountSetup:
                 if "/adsense/signup/create" in current_url:
                     logger.info("[INFO] Tela de criação do AdSense detectada, pulando recaptcha")
                 else:
-                    self._check_and_handle_recaptcha()
+                self._check_and_handle_recaptcha()
 
                 # Verificar se após selecionar a conta fomos redirecionados diretamente para a tela principal do AdSense
                 current_url = self.driver.current_url
@@ -339,10 +339,10 @@ class AccountSetup:
                     logger.info(
                         "[INFO] Detectado redirecionamento direto para a tela de criação/prenchimento do AdSense (conta já está validada)")
                     # Indicar que a conta já está validada e pular inscrição
-                    self.state = SetupState.WEBSITE_INFO
-                    logger.info(
-                        "[INFO] Pulando tela de inscrição inicial, conta já está validada")
-                    return True
+                            self.state = SetupState.WEBSITE_INFO
+                            logger.info(
+                                "[INFO] Pulando tela de inscrição inicial, conta já está validada")
+                            return True
 
             # Registrar URL atual para debug
             current_url = self.driver.current_url
@@ -424,7 +424,7 @@ class AccountSetup:
             # Verificar status de recaptcha somente se não estivermos na tela de criação (URL)
             current_url = self.driver.current_url
             if "/adsense/signup/create" not in current_url:
-                self._check_and_handle_recaptcha()
+            self._check_and_handle_recaptcha()
 
             logger.info("[INFO] Preenchendo o campo de URL do site...")
 
@@ -2746,11 +2746,11 @@ class AccountSetup:
 
     def _check_and_handle_recovery_options_screen(self) -> bool:
         """
-        Verifica e trata a tela de confirmação de informações de recuperação após verificação de telefone.
-        Clica no botão "Salvar" para continuar. Depois verifica se aparece a tela de endereço.
+        Verifica e trata a tela de opções de recuperação.
+        Se não houver recovery_email nos dados da conta, redireciona para a URL inicial do AdSense.
 
         Returns:
-            bool: True se a tela foi detectada e tratada com sucesso
+            bool: True se a tela foi tratada com sucesso
         """
         try:
             # Aguardar um pouco para garantir que a página carregou completamente
@@ -2759,8 +2759,17 @@ class AccountSetup:
             # Verificar URL atual para confirmar que estamos na página de opções de recuperação
             current_url = self.driver.current_url
             if "recoveryoptions" in current_url or "gds.google.com" in current_url:
-                logger.info(
-                    "[INFO] Detectada tela de confirmação de informações de recuperação")
+                logger.info("[INFO] Detectada tela de confirmação de informações de recuperação")
+
+                # Verificar se temos recovery_email nos dados da conta
+                recovery_email = self.account_data.get("recovery_email")
+                if not recovery_email:
+                    logger.info("[INFO] Recovery email não fornecido, redirecionando para URL inicial do AdSense")
+                    # Redirecionar para a URL inicial do AdSense
+                    adsense_url = "https://adsense.google.com/adsense/signup?subid=in-en-dr-dr-sa-a-dr"
+                    self.driver.get(adsense_url)
+                    self._wait_for_page_load()
+                    return True
 
                 # Capturar screenshot para debug
                 if DEBUG_MODE:
@@ -2782,107 +2791,29 @@ class AccountSetup:
                 button_clicked = False
                 for xpath in save_button_xpaths:
                     try:
-                        if self._check_for_element(By.XPATH, xpath, timeout=3):
-                            save_button = self.driver.find_element(
-                                By.XPATH, xpath)
-
-                            # Garantir que o botão está visível
-                            self.driver.execute_script(
-                                "arguments[0].scrollIntoView(true);", save_button)
-                            time.sleep(1)
-
-                            # Tentar clicar no botão
-                            if self._click_safely(save_button):
-                                logger.info(
-                                    f"[OK] Botão 'Salvar' clicado com sucesso usando XPath: {xpath}")
+                        if self._check_for_element(By.XPATH, xpath, timeout=2):
+                            button = self.driver.find_element(By.XPATH, xpath)
+                            if button.is_displayed() and button.is_enabled():
+                                button.click()
                                 button_clicked = True
-
-                                # Aguardar o processamento após clicar no botão
-                                time.sleep(5)
-                                self._wait_for_page_load()
+                                logger.info("[OK] Botão 'Salvar' clicado com sucesso")
                                 break
-                    except Exception as e:
-                        logger.warning(
-                            f"[AVISO] Erro ao tentar clicar no botão 'Salvar' com XPath {xpath}: {str(e)}")
+                    except Exception:
+                        continue
 
-                # Se não conseguiu clicar em nenhum botão, tentar com JavaScript
                 if not button_clicked:
-                    try:
-                        logger.info(
-                            "[INFO] Tentando clicar no botão 'Salvar' com JavaScript")
-                        success = self.driver.execute_script("""
-                            // Tentar encontrar botão pelo texto
-                            var buttons = document.querySelectorAll('button');
-                            for (var i = 0; i < buttons.length; i++) {
-                                if (buttons[i].innerText.includes('Salvar')) {
-                                    buttons[i].click();
-                                    return true;
-                                }
-                            }
-                            
-                            // Tentar por spans dentro de botões
-                            var spans = document.querySelectorAll('button span');
-                            for (var i = 0; i < spans.length; i++) {
-                                if (spans[i].innerText.includes('Salvar')) {
-                                    spans[i].closest('button').click();
-                                    return true;
-                                }
-                            }
-                            
-                            // Tentar pelo jsname específico
-                            var jsButton = document.querySelector('button[jsname="M2UYVd"]');
-                            if (jsButton) {
-                                jsButton.click();
-                                return true;
-                            }
-                            
-                            // Tentar pelo XPath específico
-                            var xpathResult = document.evaluate(
-                                "/html/body/div[1]/c-wiz[2]/div/div/div/div/div[2]/button[2]", 
-                                document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null
-                            );
-                            
-                            if (xpathResult && xpathResult.singleNodeValue) {
-                                xpathResult.singleNodeValue.click();
-                                return true;
-                            }
-                            
-                            return false;
-                        """)
+                    logger.warning("[AVISO] Não foi possível encontrar ou clicar no botão 'Salvar'")
+                    return False
 
-                        if success:
-                            logger.info(
-                                "[OK] Botão 'Salvar' clicado com sucesso via JavaScript")
-                            button_clicked = True
+                # Aguardar um pouco após clicar no botão
+                time.sleep(3)
 
-                            # Aguardar o processamento após clicar no botão
-                            time.sleep(5)
-                            self._wait_for_page_load()
-                        else:
-                            logger.warning(
-                                "[AVISO] Não foi possível encontrar o botão 'Salvar' via JavaScript")
-                    except Exception as e:
-                        logger.warning(
-                            f"[AVISO] Erro ao tentar clicar no botão 'Salvar' via JavaScript: {str(e)}")
+                return True
 
-                # Capturar screenshot após tentar clicar no botão
-                if DEBUG_MODE:
-                    self._save_screenshot("after_save_button_click")
-
-                # Após salvar, verificar se fomos direcionados para a tela de definição de endereço
-                if button_clicked:
-                    time.sleep(3)  # Aguardar redirecionamento
-                    if self._check_and_handle_address_screen():
-                        logger.info(
-                            "[OK] Tela de definição de endereço residencial tratada com sucesso após tela de recuperação")
-
-                return button_clicked
-
-            return False  # Não estamos na tela de confirmação
+            return True  # Retorna True se não estamos na tela de recuperação
 
         except Exception as e:
-            logger.warning(
-                f"[AVISO] Erro ao verificar/tratar tela de confirmação de recuperação: {str(e)}")
+            logger.error(f"[ERRO] Erro ao tratar tela de opções de recuperação: {str(e)}")
             return False
 
     def _identify_phone_verification_screen_type(self) -> str:

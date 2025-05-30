@@ -590,6 +590,53 @@
           }
         }
       }
+    },
+    "/adsense-creator/{user_id}": {
+      "post": {
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "website_url": {
+                  "type": "string",
+                  "description": "URL do site para o AdSense"
+                },
+                "country": {
+                  "type": "string",
+                  "description": "Código do país (ex: BR, US)"
+                },
+                "headless": {
+                  "type": "boolean",
+                  "description": "Se deve executar em modo headless"
+                },
+                "max_wait_time": {
+                  "type": "integer",
+                  "description": "Tempo máximo de espera em segundos"
+                },
+                "close_browser": {
+                  "type": "boolean",
+                  "description": "Se deve fechar o browser ao finalizar"
+                },
+                "email": {
+                  "type": "string",
+                  "description": "Email da conta Gmail"
+                },
+                "password": {
+                  "type": "string",
+                  "description": "Senha da conta Gmail"
+                },
+                "recovery_email": {
+                  "type": "string",
+                  "description": "Email de recuperação da conta Gmail"
+                }
+              }
+            }
+          }
+        ]
+      }
     }
   }
 }
